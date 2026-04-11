@@ -1,0 +1,25 @@
+node_modules/
+out/
+dist/
+release/
+
+# TypeScript build cache
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Environment and secrets
+.env
+.env.*
+
+# Electron userdata (contains LLM API keys)
+userData/

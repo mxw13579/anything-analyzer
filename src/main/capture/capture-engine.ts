@@ -1,0 +1,113 @@
+import { EventEmitter } from 'events'
+import type { WebContents } from 'electron'
+import type { CapturedRequest, JsHookRecord, StorageSnapshot } from '@shared/types'
+import type { RequestsRepo, JsHooksRepo, StorageSnapshotsRepo } from '../db/repositories'
+
+/**
+ * CaptureEngine — Aggregates data from CDP, JS hooks, and storage collectors,
+ * writes structured data to SQLite, and emits IPC events to the renderer.
+ */
+export class CaptureEngine extends EventEmitter {
+  private sessionId: string | null = null
+  private rendererWebContents: WebContents | null = null
+
+  constructor(
+    private requestsRepo: RequestsRepo,
+    private jsHooksRepo: JsHooksRepo,
+    private storageSnapshotsRepo: StorageSnapshotsRepo
+  ) {
+    super()
+  }
+
+  start(sessionId: string, rendererWebContents: WebContents): void {
+    this.sessionId = sessionId
+    this.rendererWebContents = rendererWebContents
+  }
+
+  stop(): void {
+    this.sessionId = null
+    this.rendererWebContents = null
+  }
+
+  handleResponseCaptured(data: {
+    requestId: string; method: string; url: string;
+    requestHeaders: string; requestBody: string | null;
+    statusCode: number; responseHeaders: string;
+    responseBody: string | null; contentType: string | null;
+    initiator: string | null; durationMs: number | null;
+    isOptions: boolean; isStatic: boolean; isStreaming: boolean; isWebSocket: boolean; truncated: boolean; timestamp: number
+  }): void {
+    if (!this.sessionId) return
+
+    const sequence = this.requestsRepo.getNextSequence(this.sessionId)
+
+    try {
+      this.requestsRepo.insert({
+        id: data.requestId, session_id: this.sessionId, sequence,
+        timestamp: data.timestamp, method: data.method, url: data.url,
+        request_headers: data.requestHeaders, request_body: data.requestBody,
+        content_type: data.contentType, initiator: data.initiator
+      })
+    } catch { /* duplicate */ }
+
+    try {
+      this.requestsRepo.updateResponse({
+        id: data.requestId, status_code: data.statusCode,
+        response_headers: data.responseHeaders,
+        response_body: data.responseBody,
+        content_type: data.contentType, duration_ms: data.durationMs || 0,
+        is_streaming: data.isStreaming ? 1 : 0,
+        is_websocket: data.isWebSocket ? 1 : 0
+      })
+    } catch { /* ignore */ }
+
+    const captured: CapturedRequest = {
+      id: data.requestId, session_id: this.sessionId, sequence,
+      timestamp: data.timestamp, method: data.method, url: data.url,
+      request_headers: data.requestHeaders, request_body: data.requestBody,
+      status_code: data.statusCode, response_headers: data.responseHeaders,
+      response_body: data.responseBody, content_type: data.contentType,
+      initiator: data.initiator, duration_ms: data.durationMs,
+      is_streaming: data.isStreaming, is_websocket: data.isWebSocket
+    }
+    this.sendToRenderer('capture:request', captured)
+  }
+
+  handleHookCaptured(data: {
+    hookType: string; functionName: string; arguments: string;
+    result: string | null; callStack: string | null; timestamp: number
+  }): void {
+    if (!this.sessionId) return
+
+    const record: Omit<JsHookRecord, 'id'> = {
+      session_id: this.sessionId, timestamp: data.timestamp,
+      hook_type: data.hookType as JsHookRecord['hook_type'],
+      function_name: data.functionName, arguments: data.arguments,
+      result: data.result, call_stack: data.callStack, related_request_id: null
+    }
+
+    try { this.jsHooksRepo.insert(record) } catch { /* ignore */ }
+    this.sendToRenderer('capture:hook', record)
+  }
+
+  handleStorageCollected(data: {
+    domain: string; storageType: string; data: string; timestamp: number
+  }): void {
+    if (!this.sessionId) return
+
+    const snapshot: Omit<StorageSnapshot, 'id'> = {
+      session_id: this.sessionId, timestamp: data.timestamp,
+      domain: data.domain,
+      storage_type: data.storageType as StorageSnapshot['storage_type'],
+      data: data.data
+    }
+
+    try { this.storageSnapshotsRepo.insert(snapshot) } catch { /* ignore */ }
+  }
+
+  private sendToRenderer(channel: string, data: unknown): void {
+    if (this.rendererWebContents && !this.rendererWebContents.isDestroyed()) {
+      this.rendererWebContents.send(channel, data)
+    }
+  }
+}
