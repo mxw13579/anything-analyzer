@@ -22,7 +22,7 @@ interface UseCaptureReturn extends UseCaptureState {
   loadData: (sessionId: string) => Promise<void>
   clearData: () => void
   selectRequest: (request: CapturedRequest | null) => void
-  startAnalysis: (sessionId: string) => Promise<void>
+  startAnalysis: (sessionId: string, purpose?: string) => Promise<void>
 }
 
 const INITIAL_STATE: UseCaptureState = {
@@ -81,7 +81,7 @@ export function useCapture(sessionId: string | null): UseCaptureReturn {
   }, [])
 
   // Start AI analysis for a session
-  const startAnalysis = useCallback(async (sid: string) => {
+  const startAnalysis = useCallback(async (sid: string, purpose?: string) => {
     setState((prev) => ({
       ...prev,
       isAnalyzing: true,
@@ -90,7 +90,7 @@ export function useCapture(sessionId: string | null): UseCaptureReturn {
     }))
 
     try {
-      const report = await window.electronAPI.startAnalysis(sid)
+      const report = await window.electronAPI.startAnalysis(sid, purpose)
 
       // Only update if session hasn't changed
       if (sessionIdRef.current === sid) {

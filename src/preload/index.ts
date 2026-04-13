@@ -52,8 +52,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("data:reports", sessionId),
 
   // AI analysis
-  startAnalysis: (sessionId: string) =>
-    ipcRenderer.invoke("ai:analyze", sessionId),
+  startAnalysis: (sessionId: string, purpose?: string) =>
+    ipcRenderer.invoke("ai:analyze", sessionId, purpose),
 
   // Settings
   getLLMConfig: () => ipcRenderer.invoke("settings:getLLM"),
