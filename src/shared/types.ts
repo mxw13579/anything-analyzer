@@ -165,6 +165,18 @@ export interface AssembledData {
   authChain: AuthChainItem[]; // 身份认证链：凭据来源、类型、值及使用者
 }
 
+// ---- Analysis Purpose ----
+
+export const ANALYSIS_PURPOSES = [
+  { label: '自动识别', value: 'auto', description: '默认 — AI 自动检测场景并生成通用分析' },
+  { label: '逆向 API 协议', value: 'reverse-api', description: '聚焦 API 端点、请求/响应模式、鉴权流程、数据模型、复现代码' },
+  { label: '安全审计', value: 'security-audit', description: '聚焦认证安全、敏感数据暴露、CSRF/XSS 风险、权限控制' },
+  { label: '性能分析', value: 'performance', description: '聚焦请求时序、冗余请求、资源加载、缓存策略' },
+  { label: '自定义...', value: 'custom', description: '输入自定义分析指令' },
+] as const;
+
+export type AnalysisPurposeId = (typeof ANALYSIS_PURPOSES)[number]['value'];
+
 // ---- IPC Channel Names ----
 
 export const IPC_CHANNELS = {
@@ -235,7 +247,7 @@ export interface ElectronAPI {
   getStorage: (sessionId: string) => Promise<StorageSnapshot[]>;
   getReports: (sessionId: string) => Promise<AnalysisReport[]>;
 
-  startAnalysis: (sessionId: string) => Promise<AnalysisReport>;
+  startAnalysis: (sessionId: string, purpose?: string) => Promise<AnalysisReport>;
 
   getLLMConfig: () => Promise<LLMProviderConfig | null>;
   saveLLMConfig: (config: LLMProviderConfig) => Promise<void>;
