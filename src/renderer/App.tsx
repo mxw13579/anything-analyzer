@@ -55,6 +55,7 @@ function App(): React.ReactElement {
     window.electronAPI.setTargetViewVisible(true)
   }, [])
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null)
+  const [selectedSeqs, setSelectedSeqs] = useState<number[]>([])
   const [browserRatio, setBrowserRatio] = useState(DEFAULT_BROWSER_RATIO)
   const [activeTab, setActiveTab] = useState('requests')
 
@@ -71,6 +72,9 @@ function App(): React.ReactElement {
 
   // Navigate browser to session URL when session changes
   useEffect(() => {
+    // Clear selections when session changes
+    setSelectedSeqs([])
+    setSelectedRequestId(null)
     if (currentSession?.target_url) {
       window.electronAPI.navigate(currentSession.target_url).catch((err) => {
         console.error('Session navigation failed:', err)
@@ -172,8 +176,18 @@ function App(): React.ReactElement {
   const handleAnalyze = useCallback(async (purpose?: string) => {
     if (!currentSessionId) return
     setActiveTab('report')
-    await startAnalysis(currentSessionId, purpose)
-  }, [currentSessionId, startAnalysis])
+    await startAnalysis(currentSessionId, purpose, selectedSeqs.length > 0 ? selectedSeqs : undefined)
+  }, [currentSessionId, startAnalysis, selectedSeqs])
+
+  // Export requests handler
+  const handleExport = useCallback(async () => {
+    if (!currentSessionId) return
+    try {
+      await window.electronAPI.exportRequests(currentSessionId)
+    } catch (err) {
+      console.error('Export failed:', err)
+    }
+  }, [currentSessionId])
 
   const handleFollowUp = useCallback(async (message: string) => {
     if (!currentSessionId) return
@@ -316,6 +330,8 @@ function App(): React.ReactElement {
             onAnalyze={handleAnalyze}
             hasRequests={requests.length > 0}
             isAnalyzing={isAnalyzing}
+            selectedSeqCount={selectedSeqs.length}
+            onExport={handleExport}
           />
 
           {/* Data panel area with tabs */}
@@ -332,7 +348,7 @@ function App(): React.ReactElement {
                     label: `Requests (${requests.length})`,
                     children: (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <RequestLog requests={requests} selectedId={selectedRequestId} onSelect={(r) => setSelectedRequestId(r.id)} />
+                        <RequestLog requests={requests} selectedId={selectedRequestId} onSelect={(r) => setSelectedRequestId(r.id)} selectedSeqs={selectedSeqs} onSelectedSeqsChange={setSelectedSeqs} />
                         <RequestDetail request={selectedRequest} hooks={hooks} />
                       </div>
                     )

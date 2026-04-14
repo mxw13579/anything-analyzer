@@ -86,6 +86,19 @@ export interface AnalysisReport {
   prompt_tokens: number | null;
   completion_tokens: number | null;
   report_content: string; // Markdown
+  filter_prompt_tokens: number | null; // Phase 1 预过滤 token 消耗
+  filter_completion_tokens: number | null;
+}
+
+// ---- Request Summary (Phase 1 预过滤) ----
+
+/** Phase 1 轻量请求摘要，用于 AI 相关性过滤 */
+export interface RequestSummary {
+  seq: number;
+  method: string;
+  url: string;
+  status: number | null;
+  contentType: string | null;
 }
 
 // ---- Scene Hint ----
@@ -201,6 +214,16 @@ export interface MCPServerConfigHttp extends MCPServerConfigBase {
 
 export type MCPServerConfig = MCPServerConfigStdio | MCPServerConfigHttp;
 
+// ---- Proxy Config ----
+
+export interface ProxyConfig {
+  type: "none" | "http" | "https" | "socks5";
+  host: string;
+  port: number;
+  username?: string;
+  password?: string;
+}
+
 // ---- Filtered Request ----
 
 export interface FilteredRequest {
@@ -282,6 +305,7 @@ export const IPC_CHANNELS = {
   DATA_REQUESTS: "data:requests",
   DATA_HOOKS: "data:hooks",
   DATA_STORAGE: "data:storage",
+  DATA_EXPORT_REQUESTS: "data:exportRequests",
 
   // AI
   AI_ANALYZE: "ai:analyze",
@@ -324,6 +348,10 @@ export const IPC_CHANNELS = {
   MCP_LIST: "mcp:list",
   MCP_SAVE: "mcp:save",
   MCP_DELETE: "mcp:delete",
+
+  // Proxy
+  PROXY_GET: "proxy:get",
+  PROXY_SAVE: "proxy:save",
 } as const;
 
 // ---- Electron API (exposed via contextBridge) ----
@@ -349,7 +377,7 @@ export interface ElectronAPI {
   getStorage: (sessionId: string) => Promise<StorageSnapshot[]>;
   getReports: (sessionId: string) => Promise<AnalysisReport[]>;
 
-  startAnalysis: (sessionId: string, purpose?: string) => Promise<AnalysisReport>;
+  startAnalysis: (sessionId: string, purpose?: string, selectedSeqs?: number[]) => Promise<AnalysisReport>;
   sendFollowUp: (sessionId: string, history: ChatMessage[], userMessage: string) => Promise<string>;
   syncBrowserBounds: (bounds: {
     x: number;
@@ -398,6 +426,13 @@ export interface ElectronAPI {
   getMCPServers: () => Promise<MCPServerConfig[]>;
   saveMCPServer: (server: MCPServerConfig) => Promise<void>;
   deleteMCPServer: (id: string) => Promise<void>;
+
+  // Export requests
+  exportRequests: (sessionId: string) => Promise<boolean>;
+
+  // Proxy
+  getProxyConfig: () => Promise<ProxyConfig | null>;
+  saveProxyConfig: (config: ProxyConfig) => Promise<void>;
 }
 
 declare global {

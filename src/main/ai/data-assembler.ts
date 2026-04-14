@@ -1,4 +1,4 @@
-import type { CapturedRequest, JsHookRecord, StorageSnapshot, AssembledData, FilteredRequest, StorageDiff, AuthChainItem } from '@shared/types'
+import type { CapturedRequest, JsHookRecord, StorageSnapshot, AssembledData, FilteredRequest, StorageDiff, AuthChainItem, RequestSummary } from '@shared/types'
 import type { RequestsRepo, JsHooksRepo, StorageSnapshotsRepo } from '../db/repositories'
 import { SceneDetector } from './scene-detector'
 import { CryptoScriptExtractor } from './crypto-script-extractor'
@@ -171,5 +171,32 @@ export class DataAssembler {
   private maskCredential(value: string): string {
     if (value.length <= 16) return '***'
     return value.substring(0, 8) + '...' + value.substring(value.length - 8)
+  }
+
+  /**
+   * 从已组装数据中提取轻量请求摘要（用于 Phase 1 预过滤）
+   */
+  extractSummaries(data: AssembledData): RequestSummary[] {
+    return data.requests.map(r => ({
+      seq: r.seq,
+      method: r.method,
+      url: r.url,
+      status: r.status,
+      contentType: r.responseHeaders?.['content-type'] ?? null,
+    }))
+  }
+
+  /**
+   * 按序号过滤已组装数据，保留全局上下文（sceneHints、authChain、storageDiff、cryptoScripts）
+   */
+  filterBySeqs(data: AssembledData, selectedSeqs: number[]): AssembledData {
+    const seqSet = new Set(selectedSeqs)
+    const filteredRequests = data.requests.filter(r => seqSet.has(r.seq))
+    return {
+      ...data,
+      requests: filteredRequests,
+      streamingRequests: data.streamingRequests.filter(r => seqSet.has(r.seq)),
+      estimatedTokens: this.estimateTokens(filteredRequests, data.storageDiff),
+    }
   }
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Modal, Form, Input, Select, InputNumber, Button, Progress, Divider, Space, Tag, message, Typography } from 'antd'
-import { SyncOutlined, CheckCircleOutlined, CloseCircleOutlined, CloudDownloadOutlined, EditOutlined, ApiOutlined } from '@ant-design/icons'
-import type { LLMProviderConfig, LLMProviderType, OpenAIApiType, UpdateStatus } from '@shared/types'
+import { SyncOutlined, CheckCircleOutlined, CloseCircleOutlined, CloudDownloadOutlined, EditOutlined, ApiOutlined, GlobalOutlined } from '@ant-design/icons'
+import type { LLMProviderConfig, LLMProviderType, OpenAIApiType, ProxyConfig, UpdateStatus } from '@shared/types'
 import PromptTemplateModal from './PromptTemplateModal'
 import MCPServerModal from './MCPServerModal'
 
@@ -25,15 +25,20 @@ export default function SettingsModal({ open, onClose }: Props) {
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: 'idle' })
   const [templateModalOpen, setTemplateModalOpen] = useState(false)
   const [mcpModalOpen, setMcpModalOpen] = useState(false)
+  const [proxyForm] = Form.useForm()
+  const proxyType = Form.useWatch('type', proxyForm)
 
   useEffect(() => {
     if (open) {
       window.electronAPI.getLLMConfig().then(config => {
         if (config) form.setFieldsValue(config)
       })
+      window.electronAPI.getProxyConfig().then(config => {
+        if (config) proxyForm.setFieldsValue(config)
+      })
       window.electronAPI.getAppVersion().then(setAppVersion)
     }
-  }, [open, form])
+  }, [open, form, proxyForm])
 
   // Subscribe to update status events
   useEffect(() => {
@@ -71,7 +76,18 @@ export default function SettingsModal({ open, onClose }: Props) {
   }, [])
 
   return (
-    <Modal title="Settings" open={open} onOk={handleSave} onCancel={onClose} okText="Save">
+    <Modal
+      title="Settings"
+      open={open}
+      onOk={handleSave}
+      onCancel={onClose}
+      okText="Save"
+      centered
+      styles={{
+        wrapper: { overflow: 'hidden' },
+        body: { maxHeight: 'calc(100vh - 200px)', overflowY: 'auto' },
+      }}
+    >
       {/* About & Update */}
       <div style={{ marginBottom: 12 }}>
         <Text strong>Anything Analyzer</Text>
@@ -168,6 +184,47 @@ export default function SettingsModal({ open, onClose }: Props) {
       {/* MCP Server Management */}
       <Button icon={<ApiOutlined />} block onClick={() => setMcpModalOpen(true)}>
         管理 MCP 服务器
+      </Button>
+
+      <Divider style={{ margin: '12px 0' }} />
+
+      {/* Proxy Settings */}
+      <div style={{ marginBottom: 8 }}>
+        <GlobalOutlined style={{ marginRight: 6 }} />
+        <Text strong>代理设置</Text>
+      </div>
+      <Form form={proxyForm} layout="vertical" initialValues={{ type: 'none' as ProxyConfig['type'], host: '', port: 1080 }}>
+        <Form.Item name="type" label="代理类型">
+          <Select options={[
+            { label: '无代理 (直连)', value: 'none' },
+            { label: 'HTTP', value: 'http' },
+            { label: 'HTTPS', value: 'https' },
+            { label: 'SOCKS5', value: 'socks5' },
+          ]} />
+        </Form.Item>
+        {proxyType && proxyType !== 'none' && (
+          <>
+            <Form.Item name="host" label="主机" rules={[{ required: true, message: '请输入代理主机' }]}>
+              <Input placeholder="127.0.0.1" />
+            </Form.Item>
+            <Form.Item name="port" label="端口" rules={[{ required: true, message: '请输入端口' }]}>
+              <InputNumber min={1} max={65535} style={{ width: '100%' }} placeholder="1080" />
+            </Form.Item>
+            <Form.Item name="username" label="用户名（可选）">
+              <Input placeholder="留空则无认证" />
+            </Form.Item>
+            <Form.Item name="password" label="密码（可选）">
+              <Input.Password placeholder="留空则无认证" />
+            </Form.Item>
+          </>
+        )}
+      </Form>
+      <Button type="primary" block onClick={async () => {
+        const values = await proxyForm.validateFields()
+        await window.electronAPI.saveProxyConfig(values as ProxyConfig)
+        message.success('代理设置已保存并生效')
+      }}>
+        保存代理设置
       </Button>
 
       <PromptTemplateModal open={templateModalOpen} onClose={() => setTemplateModalOpen(false)} />

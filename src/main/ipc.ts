@@ -1,5 +1,5 @@
-import { ipcMain, dialog, app } from "electron";
-import type { LLMProviderConfig, MCPServerConfig, PromptTemplate } from "@shared/types";
+import { ipcMain, dialog, app, session } from "electron";
+import type { LLMProviderConfig, MCPServerConfig, ProxyConfig, PromptTemplate } from "@shared/types";
 import type { SessionManager } from "./session/session-manager";
 import type { AiAnalyzer } from "./ai/ai-analyzer";
 import type { WindowManager } from "./window";
@@ -204,7 +204,7 @@ export function registerIpcHandlers(deps: {
 
   // ---- AI Analysis ----
 
-  ipcMain.handle("ai:analyze", async (_event, sessionId: string, purpose?: string) => {
+  ipcMain.handle("ai:analyze", async (_event, sessionId: string, purpose?: string, selectedSeqs?: number[]) => {
     const config = loadLLMConfig();
     if (!config) throw new Error("LLM provider not configured");
 
@@ -223,7 +223,7 @@ export function registerIpcHandlers(deps: {
 
     // Resolve template: if purpose matches a template ID, load it
     const template = purpose ? findTemplate(purpose) : findTemplate("auto");
-    return aiAnalyzer.analyze(sessionId, config, onProgress, purpose, template ?? undefined);
+    return aiAnalyzer.analyze(sessionId, config, onProgress, purpose, template ?? undefined, selectedSeqs);
   });
 
   ipcMain.handle(
@@ -328,6 +328,40 @@ export function registerIpcHandlers(deps: {
     // 同时断开该服务器连接
     await mcpManager.disconnect(id);
   });
+
+  // ---- Export Requests ----
+
+  ipcMain.handle("data:exportRequests", async (_event, sessionId: string) => {
+    const win = windowManager.getMainWindow();
+    if (!win) return false;
+    const requests = requestsRepo.findBySession(sessionId);
+    if (requests.length === 0) return false;
+    const sessionInfo = deps.sessionsRepo.findById(sessionId);
+    const sessionName = sessionInfo?.name || "requests";
+    const timestamp = new Date().toISOString().slice(0, 10);
+    const defaultName = `${sessionName}-${timestamp}.json`;
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
+      defaultPath: defaultName,
+      filters: [
+        { name: "JSON", extensions: ["json"] },
+        { name: "All Files", extensions: ["*"] },
+      ],
+    });
+    if (canceled || !filePath) return false;
+    writeFileSync(filePath, JSON.stringify(requests, null, 2), "utf-8");
+    return true;
+  });
+
+  // ---- Proxy ----
+
+  ipcMain.handle("proxy:get", async () => {
+    return loadProxyConfig();
+  });
+
+  ipcMain.handle("proxy:save", async (_event, config: ProxyConfig) => {
+    saveProxyConfigFile(config);
+    await applyProxy(config);
+  });
 }
 
 // ---- Config persistence helpers ----
@@ -348,4 +382,36 @@ function loadLLMConfig(): LLMProviderConfig | null {
 
 function saveLLMConfig(config: LLMProviderConfig): void {
   writeFileSync(getConfigPath(), JSON.stringify(config, null, 2), "utf-8");
+}
+
+// ---- Proxy config persistence ----
+
+function getProxyConfigPath(): string {
+  return join(app.getPath("userData"), "proxy-config.json");
+}
+
+export function loadProxyConfig(): ProxyConfig | null {
+  const path = getProxyConfigPath();
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, "utf-8")) as ProxyConfig;
+  } catch {
+    return null;
+  }
+}
+
+function saveProxyConfigFile(config: ProxyConfig): void {
+  writeFileSync(getProxyConfigPath(), JSON.stringify(config, null, 2), "utf-8");
+}
+
+export async function applyProxy(config: ProxyConfig | null): Promise<void> {
+  if (!config || config.type === "none") {
+    await session.defaultSession.setProxy({ mode: "direct" });
+    return;
+  }
+  const auth = config.username && config.password
+    ? `${config.username}:${config.password}@`
+    : "";
+  const proxyRules = `${config.type}://${auth}${config.host}:${config.port}`;
+  await session.defaultSession.setProxy({ proxyRules });
 }

@@ -12,7 +12,7 @@ import { CaptureEngine } from "./capture/capture-engine";
 import { SessionManager } from "./session/session-manager";
 import { AiAnalyzer } from "./ai/ai-analyzer";
 import { WindowManager } from "./window";
-import { registerIpcHandlers } from "./ipc";
+import { registerIpcHandlers, loadProxyConfig, applyProxy } from "./ipc";
 import { Updater } from "./updater";
 import { MCPClientManager } from "./mcp/mcp-manager";
 
@@ -58,6 +58,14 @@ app.whenReady().then(() => {
 
   // Initialize tab manager with first tab
   windowManager.initTabs();
+
+  // Apply proxy config from saved settings (before IPC handlers)
+  const proxyConfig = loadProxyConfig();
+  if (proxyConfig && proxyConfig.type !== "none") {
+    applyProxy(proxyConfig).catch((err) =>
+      console.error("Failed to apply proxy config:", err),
+    );
+  }
 
   // Initialize auto-updater
   const updater = new Updater();

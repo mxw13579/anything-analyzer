@@ -101,4 +101,26 @@ export function runMigrations(db: Database.Database): void {
 
   // Run additional migrations
   migrateAddStreamingAndWebSocketFlags(db)
+  migrateAddFilterTokenColumns(db)
+}
+
+/**
+ * Migration 006: Add Phase 1 filter token columns to analysis_reports
+ * Safe to call multiple times (handles duplicate column errors)
+ */
+export function migrateAddFilterTokenColumns(db: Database.Database): void {
+  const migrations = [
+    `ALTER TABLE analysis_reports ADD COLUMN filter_prompt_tokens INTEGER`,
+    `ALTER TABLE analysis_reports ADD COLUMN filter_completion_tokens INTEGER`,
+  ]
+
+  for (const migration of migrations) {
+    try {
+      db.exec(migration)
+    } catch (err) {
+      if (!String(err).includes('duplicate column name')) {
+        throw err
+      }
+    }
+  }
 }

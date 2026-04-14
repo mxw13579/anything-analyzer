@@ -208,8 +208,8 @@ export class AnalysisReportsRepo {
   constructor(private db: Database.Database) {
     this.stmts = {
       insert: db.prepare(
-        `INSERT INTO analysis_reports (id, session_id, created_at, llm_provider, llm_model, prompt_tokens, completion_tokens, report_content)
-         VALUES (@id, @session_id, @created_at, @llm_provider, @llm_model, @prompt_tokens, @completion_tokens, @report_content)`
+        `INSERT INTO analysis_reports (id, session_id, created_at, llm_provider, llm_model, prompt_tokens, completion_tokens, report_content, filter_prompt_tokens, filter_completion_tokens)
+         VALUES (@id, @session_id, @created_at, @llm_provider, @llm_model, @prompt_tokens, @completion_tokens, @report_content, @filter_prompt_tokens, @filter_completion_tokens)`
       ),
       findBySession: db.prepare(
         'SELECT * FROM analysis_reports WHERE session_id = ? ORDER BY created_at DESC'

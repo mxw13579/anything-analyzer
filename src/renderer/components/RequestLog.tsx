@@ -1,12 +1,14 @@
 import React, { useMemo, useCallback } from 'react'
 import { Table, Tag } from 'antd'
-import type { ColumnsType } from 'antd/es/table'
+import type { ColumnsType, TableRowSelection } from 'antd/es/table/interface'
 import type { CapturedRequest } from '@shared/types'
 
 interface RequestLogProps {
   requests: CapturedRequest[]
   selectedId: string | null
   onSelect: (request: CapturedRequest) => void
+  selectedSeqs: number[]
+  onSelectedSeqsChange: (seqs: number[]) => void
 }
 
 // Color mapping for HTTP methods
@@ -40,7 +42,7 @@ function extractPath(url: string): string {
   }
 }
 
-const RequestLog: React.FC<RequestLogProps> = ({ requests, selectedId, onSelect }) => {
+const RequestLog: React.FC<RequestLogProps> = ({ requests, selectedId, onSelect, selectedSeqs, onSelectedSeqsChange }) => {
   const columns: ColumnsType<CapturedRequest> = useMemo(
     () => [
       {
@@ -117,11 +119,24 @@ const RequestLog: React.FC<RequestLogProps> = ({ requests, selectedId, onSelect 
     [selectedId, onSelect]
   )
 
+  // 多选配置：使用 sequence 作为选择键
+  const rowSelection: TableRowSelection<CapturedRequest> = useMemo(
+    () => ({
+      selectedRowKeys: selectedSeqs,
+      onChange: (_selectedKeys: React.Key[], selectedRows: CapturedRequest[]) => {
+        onSelectedSeqsChange(selectedRows.map(r => r.sequence))
+      },
+      columnWidth: 40,
+    }),
+    [selectedSeqs, onSelectedSeqsChange]
+  )
+
   return (
     <Table<CapturedRequest>
       columns={columns}
       dataSource={requests}
-      rowKey="id"
+      rowKey="sequence"
+      rowSelection={rowSelection}
       size="small"
       pagination={false}
       scroll={{ y: 400 }}

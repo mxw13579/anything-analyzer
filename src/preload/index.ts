@@ -52,8 +52,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("data:reports", sessionId),
 
   // AI analysis
-  startAnalysis: (sessionId: string, purpose?: string) =>
-    ipcRenderer.invoke("ai:analyze", sessionId, purpose),
+  startAnalysis: (sessionId: string, purpose?: string, selectedSeqs?: number[]) =>
+    ipcRenderer.invoke("ai:analyze", sessionId, purpose, selectedSeqs),
   sendFollowUp: (sessionId: string, history: unknown[], userMessage: string) =>
     ipcRenderer.invoke("ai:chat", sessionId, history, userMessage),
 
@@ -91,6 +91,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getMCPServers: () => ipcRenderer.invoke("mcp:list"),
   saveMCPServer: (server: unknown) => ipcRenderer.invoke("mcp:save", server),
   deleteMCPServer: (id: string) => ipcRenderer.invoke("mcp:delete", id),
+
+  // Export requests
+  exportRequests: (sessionId: string) =>
+    ipcRenderer.invoke("data:exportRequests", sessionId),
+
+  // Proxy
+  getProxyConfig: () => ipcRenderer.invoke("proxy:get"),
+  saveProxyConfig: (config: unknown) =>
+    ipcRenderer.invoke("proxy:save", config),
 
   // Tab events
   onTabCreated: (callback: (tab: unknown) => void) => {

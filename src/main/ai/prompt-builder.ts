@@ -5,6 +5,7 @@ import type {
   AuthChainItem,
   FilteredRequest,
   PromptTemplate,
+  RequestSummary,
 } from "@shared/types";
 
 interface PromptMessages {
@@ -54,9 +55,16 @@ export class PromptBuilder {
     platformName: string,
     purpose?: string,
     template?: PromptTemplate,
+    allSummaries?: RequestSummary[],
   ): PromptMessages {
-    const system = template?.systemPrompt
-      || `你是一位网站协议分析专家。你的任务是分析用户在网站上的操作过程中产生的HTTP请求、JS调用和存储变化，识别其业务场景，并生成结构化的协议分析报告。Be precise and technical. Output in Chinese (Simplified).`;
+    const hasToolAccess = allSummaries && allSummaries.length > data.requests.length;
+
+    const toolHint = hasToolAccess
+      ? '\n你可以使用 get_request_detail 工具来查看任意请求的完整内容（包括被过滤的请求）。当你发现分析信息不足时，主动调用此工具获取更多细节。'
+      : '';
+
+    const system = (template?.systemPrompt
+      || `你是一位网站协议分析专家。你的任务是分析用户在网站上的操作过程中产生的HTTP请求、JS调用和存储变化，识别其业务场景，并生成结构化的协议分析报告。Be precise and technical. Output in Chinese (Simplified).`) + toolHint;
 
     const analysisRequirements = template?.requirements
       || this.buildAnalysisRequirements(purpose);
@@ -70,6 +78,11 @@ export class PromptBuilder {
     );
     const cryptoHooksSection = this.formatCryptoHooks(data.requests);
     const cryptoScriptsSection = this.formatCryptoScripts(data.cryptoScripts);
+
+    // 完整请求索引（仅当 Phase 1 过滤生效时添加）
+    const requestIndexSection = hasToolAccess
+      ? this.formatRequestIndex(allSummaries!, data.requests.length)
+      : '';
 
     const user = `以下是用户在 ${platformName} 上操作时的完整数据。
 
@@ -96,9 +109,46 @@ ${cryptoScriptsSection}
 
 ## 存储变化
 ${storageSection}
-
+${requestIndexSection}
 ## 分析要求
 ${analysisRequirements}`;
+
+    return { system, user };
+  }
+
+  /**
+   * Phase 1：构建轻量级预过滤 prompt，用于 AI 判断请求相关性
+   */
+  buildFilterPrompt(
+    summaries: RequestSummary[],
+    sceneHints: SceneHint[],
+    purpose?: string,
+    template?: PromptTemplate,
+  ): PromptMessages {
+    const system = `你是一个HTTP请求相关性过滤器。给定请求摘要列表和分析目的，判断哪些请求与分析目的相关。
+仅返回JSON数组，包含相关请求的序号。例如：[1, 3, 5, 8]
+宁可多选也不要遗漏——如果一个请求可能相关，就包含它。
+不要返回任何其他内容，只返回JSON数组。`;
+
+    const analysisRequirements = template?.requirements
+      || this.buildAnalysisRequirements(purpose);
+    const sceneSection = this.formatSceneHints(sceneHints);
+
+    const summaryLines = summaries.map(s => {
+      const ct = s.contentType ? ` [${s.contentType.split(';')[0].trim()}]` : '';
+      return `#${s.seq} ${s.method} ${s.url} -> ${s.status ?? 'pending'}${ct}`;
+    }).join('\n');
+
+    const user = `## 分析目的
+${analysisRequirements}
+
+## 场景线索
+${sceneSection}
+
+## 请求摘要（共 ${summaries.length} 条）
+${summaryLines}
+
+请返回与分析目的相关的请求序号JSON数组。包含直接相关和支撑性请求（如认证请求）。`;
 
     return { system, user };
   }
@@ -242,6 +292,21 @@ ${DEFAULT_REQUIREMENTS}`;
       const patterns = s.matchedPatterns.join(', ');
       return `### ${s.scriptUrl} (行 ${s.lineRange[0]}-${s.lineRange[1]})\n匹配: ${patterns}\n\`\`\`javascript\n${s.content}\n\`\`\``;
     }).join('\n\n');
+  }
+
+  private formatRequestIndex(summaries: RequestSummary[], analysisCount: number): string {
+    const lines = summaries.map(s => {
+      const ct = s.contentType ? ` [${s.contentType.split(';')[0].trim()}]` : '';
+      return `#${s.seq} ${s.method} ${s.url} -> ${s.status ?? 'pending'}${ct}`;
+    });
+    return `
+## 完整请求索引（包含被过滤的请求）
+以下是本次会话中所有 ${summaries.length} 条请求的摘要（当前深度分析仅包含其中 ${analysisCount} 条）。
+如果你认为被过滤的请求可能与分析相关，可以调用 get_request_detail 工具获取其完整内容。
+
+${lines.join('\n')}
+
+`;
   }
 
   private filterHeaders(

@@ -7,7 +7,8 @@ import {
   ExperimentOutlined,
   LoadingOutlined,
   CheckOutlined,
-  CloseOutlined
+  CloseOutlined,
+  ExportOutlined
 } from '@ant-design/icons'
 import type { SessionStatus, PromptTemplate } from '../../shared/types'
 
@@ -19,6 +20,8 @@ interface ControlBarProps {
   onAnalyze: (purpose?: string) => void
   hasRequests: boolean
   isAnalyzing?: boolean
+  selectedSeqCount?: number
+  onExport?: () => void
 }
 
 const ControlBar: React.FC<ControlBarProps> = ({
@@ -28,7 +31,9 @@ const ControlBar: React.FC<ControlBarProps> = ({
   onStop,
   onAnalyze,
   hasRequests,
-  isAnalyzing = false
+  isAnalyzing = false,
+  selectedSeqCount = 0,
+  onExport
 }) => {
   const [purposeId, setPurposeId] = useState<string>('auto')
   const [customText, setCustomText] = useState('')
@@ -147,7 +152,15 @@ const ControlBar: React.FC<ControlBarProps> = ({
             loading={isAnalyzing}
             onClick={handleAnalyze}
           >
-            {isAnalyzing ? 'Analyzing...' : 'Analyze'}
+            {isAnalyzing ? 'Analyzing...' : selectedSeqCount > 0 ? `分析选中(${selectedSeqCount})` : 'Analyze'}
+          </Button>
+
+          <Button
+            icon={<ExportOutlined />}
+            disabled={!(isStopped && hasRequests) || isAnalyzing}
+            onClick={onExport}
+          >
+            导出
           </Button>
         </Space>
 
