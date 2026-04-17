@@ -29,8 +29,10 @@ import type {
   AnalysisReportsRepo,
   SessionsRepo,
 } from "./db/repositories";
+import type { ProfileStore } from './fingerprint/profile-store';
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
+import { randomUUID } from "node:crypto";
 
 /**
  * Register all IPC handlers for communication between renderer and main process.
@@ -52,6 +54,7 @@ export function registerIpcHandlers(deps: {
   jsHooksRepo: JsHooksRepo;
   storageSnapshotsRepo: StorageSnapshotsRepo;
   reportsRepo: AnalysisReportsRepo;
+  profileStore: ProfileStore;
 }): void {
   const {
     sessionManager,
@@ -66,6 +69,7 @@ export function registerIpcHandlers(deps: {
     jsHooksRepo,
     storageSnapshotsRepo,
     reportsRepo,
+    profileStore,
   } = deps;
 
   // ---- Session Management ----
@@ -558,6 +562,31 @@ export function registerIpcHandlers(deps: {
     }
     return result;
   });
+
+  // ---- Fingerprint Profile ----
+
+  ipcMain.handle("fingerprint:get", async (_event, sessionId: string) => {
+    return profileStore.get(sessionId) ?? null;
+  });
+
+  ipcMain.handle("fingerprint:update", async (_event, profileJson: string) => {
+    const profile = JSON.parse(profileJson);
+    profileStore.update(profile);
+  });
+
+  ipcMain.handle("fingerprint:regenerate", async (_event, sessionId: string) => {
+    return profileStore.regenerate(sessionId) ?? null;
+  });
+
+  ipcMain.handle("fingerprint:enable", async (_event, sessionId: string) => {
+    const tabManager = windowManager.getTabManager();
+    if (!tabManager) throw new Error("Browser not ready");
+    await sessionManager.enableStealth(sessionId, tabManager);
+  });
+
+  ipcMain.handle("fingerprint:disable", async () => {
+    await sessionManager.disableStealth();
+  });
 }
 
 // ---- Config persistence helpers ----
@@ -614,7 +643,7 @@ export async function applyProxy(config: ProxyConfig | null): Promise<void> {
 
 // ---- MCP Server config persistence ----
 
-const DEFAULT_MCP_SERVER_CONFIG: MCPServerSettings = { enabled: false, port: 23816 };
+const DEFAULT_MCP_SERVER_CONFIG: MCPServerSettings = { enabled: false, port: 23816, authEnabled: true, authToken: '' };
 
 function getMCPServerConfigPath(): string {
   return join(app.getPath("userData"), "mcp-server-config.json");
@@ -622,12 +651,22 @@ function getMCPServerConfigPath(): string {
 
 export function loadMCPServerConfig(): MCPServerSettings {
   const path = getMCPServerConfigPath();
-  if (!existsSync(path)) return DEFAULT_MCP_SERVER_CONFIG;
-  try {
-    return { ...DEFAULT_MCP_SERVER_CONFIG, ...JSON.parse(readFileSync(path, "utf-8")) };
-  } catch {
-    return DEFAULT_MCP_SERVER_CONFIG;
+  let config: MCPServerSettings;
+  if (!existsSync(path)) {
+    config = { ...DEFAULT_MCP_SERVER_CONFIG };
+  } else {
+    try {
+      config = { ...DEFAULT_MCP_SERVER_CONFIG, ...JSON.parse(readFileSync(path, "utf-8")) };
+    } catch {
+      config = { ...DEFAULT_MCP_SERVER_CONFIG };
+    }
   }
+  // Auto-generate token if empty (first run or upgraded from old config)
+  if (!config.authToken) {
+    config.authToken = randomUUID();
+    saveMCPServerConfig(config);
+  }
+  return config;
 }
 
 function saveMCPServerConfig(config: MCPServerSettings): void {

@@ -228,6 +228,8 @@ export interface ProxyConfig {
 export interface MCPServerSettings {
   enabled: boolean;
   port: number;
+  authEnabled: boolean;
+  authToken: string;
 }
 
 // ---- MITM Proxy ----
@@ -246,6 +248,37 @@ export interface MitmProxyStatus {
   caInstalled: boolean;
   caCertPath: string | null;
   systemProxyEnabled: boolean;
+}
+
+// ---- Fingerprint Profile ----
+
+export interface FingerprintProfile {
+  /** Bound to Session ID */
+  sessionId: string;
+  // Basic identity
+  userAgent: string;
+  platform: string;            // "Win32" | "MacIntel" | "Linux x86_64"
+  oscpu: string;
+  appVersion: string;
+  // Hardware
+  screenWidth: number;
+  screenHeight: number;
+  colorDepth: number;          // 24 | 32
+  devicePixelRatio: number;    // 1 | 1.25 | 1.5 | 2
+  hardwareConcurrency: number; // 4 | 8 | 12 | 16
+  deviceMemory: number;        // 4 | 8 | 16 | 32
+  // WebGL
+  webglVendor: string;
+  webglRenderer: string;
+  // Canvas & Audio noise seeds
+  canvasNoise: number;
+  audioNoise: number;
+  // Network / Geo
+  languages: string[];
+  timezone: string;
+  timezoneOffset: number;
+  // WebRTC
+  webrtcPolicy: 'block' | 'real' | 'fake';
 }
 
 // ---- Filtered Request ----
@@ -359,6 +392,7 @@ export const IPC_CHANNELS = {
   // Capture events (main → renderer)
   CAPTURE_REQUEST: "capture:request",
   CAPTURE_HOOK: "capture:hook",
+  CAPTURE_STORAGE: "capture:storage",
 
   // Update
   APP_VERSION: "app:version",
@@ -396,6 +430,13 @@ export const IPC_CHANNELS = {
   MITM_REGENERATE_CA: "mitm-proxy:regenerateCA",
   MITM_ENABLE_SYSTEM_PROXY: "mitm-proxy:enableSystemProxy",
   MITM_DISABLE_SYSTEM_PROXY: "mitm-proxy:disableSystemProxy",
+
+  // Fingerprint
+  FINGERPRINT_GET: "fingerprint:get",
+  FINGERPRINT_UPDATE: "fingerprint:update",
+  FINGERPRINT_REGENERATE: "fingerprint:regenerate",
+  FINGERPRINT_ENABLE: "fingerprint:enable",
+  FINGERPRINT_DISABLE: "fingerprint:disable",
 } as const;
 
 // ---- Electron API (exposed via contextBridge) ----
@@ -461,6 +502,7 @@ export interface ElectronAPI {
 
   onRequestCaptured: (callback: (data: CapturedRequest) => void) => void;
   onHookCaptured: (callback: (data: JsHookRecord) => void) => void;
+  onStorageCaptured: (callback: (data: StorageSnapshot) => void) => void;
   onAnalysisProgress: (callback: (chunk: string) => void) => void;
   removeAllListeners: (channel: string) => void;
 
@@ -506,6 +548,13 @@ export interface ElectronAPI {
   regenerateMitmCA: () => Promise<void>;
   enableMitmSystemProxy: () => Promise<{ success: boolean; error?: string }>;
   disableMitmSystemProxy: () => Promise<{ success: boolean; error?: string }>;
+
+  // Fingerprint
+  getFingerprintProfile: (sessionId: string) => Promise<FingerprintProfile | null>;
+  updateFingerprintProfile: (profile: FingerprintProfile) => Promise<void>;
+  regenerateFingerprintProfile: (sessionId: string) => Promise<FingerprintProfile>;
+  enableFingerprint: (sessionId: string) => Promise<void>;
+  disableFingerprint: () => Promise<void>;
 }
 
 declare global {

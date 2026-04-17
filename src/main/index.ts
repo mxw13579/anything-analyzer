@@ -7,6 +7,7 @@ import {
   JsHooksRepo,
   StorageSnapshotsRepo,
   AnalysisReportsRepo,
+  FingerprintProfilesRepo,
 } from "./db/repositories";
 import { CaptureEngine } from "./capture/capture-engine";
 import { SessionManager } from "./session/session-manager";
@@ -20,6 +21,7 @@ import { CaManager } from "./proxy/ca-manager";
 import { MitmProxyServer } from "./proxy/mitm-proxy-server";
 import { loadMitmProxyConfig, saveMitmProxyConfig } from "./proxy/mitm-proxy-config";
 import { SystemProxy } from "./proxy/system-proxy";
+import { ProfileStore } from "./fingerprint/profile-store";
 import { join } from "path";
 
 const windowManager = new WindowManager();
@@ -42,6 +44,8 @@ app.whenReady().then(async () => {
   const jsHooksRepo = new JsHooksRepo(db);
   const storageSnapshotsRepo = new StorageSnapshotsRepo(db);
   const reportsRepo = new AnalysisReportsRepo(db);
+  const fingerprintRepo = new FingerprintProfilesRepo(db);
+  const profileStore = new ProfileStore(fingerprintRepo);
 
   // Initialize capture engine
   const captureEngine = new CaptureEngine(
@@ -51,7 +55,7 @@ app.whenReady().then(async () => {
   );
 
   // Initialize session manager
-  const sessionManager = new SessionManager(sessionsRepo, captureEngine);
+  const sessionManager = new SessionManager(sessionsRepo, captureEngine, profileStore);
   sessionManagerRef = sessionManager;
 
   // Recover from potential crash
@@ -102,6 +106,7 @@ app.whenReady().then(async () => {
     jsHooksRepo,
     storageSnapshotsRepo,
     reportsRepo,
+    profileStore,
   });
 
   // Check for updates on startup (non-blocking, delayed 3s)
@@ -113,6 +118,8 @@ app.whenReady().then(async () => {
     initMCPServer(
       { sessionManager, aiAnalyzer, windowManager, requestsRepo, jsHooksRepo, storageSnapshotsRepo, reportsRepo },
       mcpServerConfig.port,
+      mcpServerConfig.authEnabled,
+      mcpServerConfig.authToken,
     ).catch((err) => console.error("Failed to start MCP Server:", err));
   }
 

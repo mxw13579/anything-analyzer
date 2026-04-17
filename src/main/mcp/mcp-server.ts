@@ -59,6 +59,8 @@ function createMcpServerInstance(deps: MCPServerDeps): McpServer {
 export async function initMCPServer(
   deps: MCPServerDeps,
   port: number,
+  authEnabled: boolean = true,
+  authToken: string = '',
 ): Promise<void> {
   if (httpServer) await stopMCPServer();
 
@@ -74,7 +76,7 @@ export async function initMCPServer(
       );
       res.setHeader(
         "Access-Control-Allow-Headers",
-        "Content-Type, mcp-session-id, mcp-protocol-version",
+        "Content-Type, Authorization, mcp-session-id, mcp-protocol-version",
       );
       res.setHeader(
         "Access-Control-Expose-Headers",
@@ -85,6 +87,16 @@ export async function initMCPServer(
         res.writeHead(204);
         res.end();
         return;
+      }
+
+      // Authentication check (skip OPTIONS preflight)
+      if (authEnabled && authToken) {
+        const authHeader = req.headers["authorization"];
+        if (authHeader !== `Bearer ${authToken}`) {
+          res.writeHead(401, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Unauthorized: invalid or missing token" }));
+          return;
+        }
       }
 
       const url = new URL(req.url || "/", `http://localhost:${port}`);
