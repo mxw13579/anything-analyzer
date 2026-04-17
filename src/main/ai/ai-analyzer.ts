@@ -69,6 +69,7 @@ export class AiAnalyzer {
     purpose?: string,
     template?: PromptTemplate,
     selectedSeqs?: number[],
+    signal?: AbortSignal,
   ): Promise<AnalysisReport> {
     // Get session info
     const session = this.sessionsRepo.findById(sessionId);
@@ -131,7 +132,8 @@ export class AiAnalyzer {
           ];
 
           // 非流式调用
-          const phase1Result = await phase1Router.complete(phase1Messages);
+          signal?.throwIfAborted();
+          const phase1Result = await phase1Router.complete(phase1Messages, undefined, signal);
           filterPromptTokens = phase1Result.promptTokens;
           filterCompletionTokens = phase1Result.completionTokens;
 
@@ -192,6 +194,7 @@ export class AiAnalyzer {
 
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
+        signal?.throwIfAborted();
         const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
           { role: "system", content: system },
           { role: "user", content: user },
@@ -205,10 +208,12 @@ export class AiAnalyzer {
             allTools,
             callTool,
             onProgress,
+            10,
+            signal,
           );
         } else {
           // 无工具时走流式调用（保持逐字输出 UX）
-          result = await router.complete(messages, onProgress);
+          result = await router.complete(messages, onProgress, signal);
         }
 
         content = result.content;
@@ -216,6 +221,8 @@ export class AiAnalyzer {
         completionTokens = result.completionTokens;
         break;
       } catch (err) {
+        // Don't retry if cancelled
+        if (signal?.aborted) throw err;
         if (attempt === 1)
           throw new Error(
             `AI 分析失败（已重试）: ${(err as Error).message}`,
@@ -305,6 +312,40 @@ export class AiAnalyzer {
     ]
 
     const router = new LLMRouter(config)
+
+    // Build request lookup for builtin tool
+    const assembler = new DataAssembler(
+      this.requestsRepo,
+      this.jsHooksRepo,
+      this.storageSnapshotsRepo,
+    );
+    const fullData = assembler.assemble(sessionId);
+    const requestMap = new Map(fullData.requests.map(r => [r.seq, r]));
+
+    // Collect available tools: builtin + MCP
+    const builtinTools = fullData.requests.length > 0 ? BUILTIN_TOOLS : [];
+    const mcpTools = this.mcpManager?.hasConnections()
+      ? this.mcpManager.listAllTools()
+      : [];
+    const allTools = [...builtinTools, ...mcpTools];
+
+    const mcpMgr = this.mcpManager;
+    const callTool = async (name: string, args: Record<string, unknown>): Promise<string> => {
+      if (name === 'get_request_detail') {
+        const seq = args.seq as number;
+        const req = requestMap.get(seq);
+        if (!req) return `Error: 未找到序号为 ${seq} 的请求`;
+        return this.formatRequestDetail(req);
+      }
+      if (mcpMgr) return mcpMgr.callTool(name, args);
+      throw new Error(`Tool not found: ${name}`);
+    };
+
+    if (allTools.length > 0) {
+      const result = await router.completeWithTools(messages, allTools, callTool, onProgress, 5);
+      return result.content;
+    }
+
     const result = await router.complete(messages, onProgress)
     return result.content
   }

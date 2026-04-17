@@ -1,7 +1,9 @@
-import { BrowserWindow } from "electron";
+import { BrowserWindow, nativeImage } from "electron";
 import { join } from "path";
 import { TabManager } from "./tab-manager";
 
+/** Custom titlebar height in renderer (px) */
+const TITLEBAR_HEIGHT = 40;
 /** Tab bar height in renderer (px) */
 const TAB_BAR_HEIGHT = 33; // 32px height + 1px border-bottom
 
@@ -14,6 +16,8 @@ export class WindowManager {
   private tabManager: TabManager | null = null;
   /** Browser area height ratio (0.0 ~ 1.0), default 70% */
   private browserRatio = 0.7;
+  /** Whether the browser view should be visible */
+  private targetViewVisible = true;
 
   /**
    * Create the main application window.
@@ -25,6 +29,8 @@ export class WindowManager {
       minWidth: 1024,
       minHeight: 700,
       title: "Anything Analyzer",
+      icon: nativeImage.createFromPath(join(__dirname, "../../resources/icon.png")),
+      frame: false,
       autoHideMenuBar: true,
       webPreferences: {
         preload: join(__dirname, "../preload/index.js"),
@@ -50,7 +56,11 @@ export class WindowManager {
     if (!this.mainWindow) throw new Error("Main window not created");
 
     this.tabManager = new TabManager();
-    this.tabManager.init(this.mainWindow, () => this.calculateTargetBounds());
+    this.tabManager.init(
+      this.mainWindow,
+      () => this.calculateTargetBounds(),
+      () => this.targetViewVisible,
+    );
 
     // Create the first tab
     this.tabManager.createTab();
@@ -124,6 +134,7 @@ export class WindowManager {
    * Show or hide the active tab's browser view.
    */
   setTargetViewVisible(visible: boolean): void {
+    this.targetViewVisible = visible;
     if (!this.mainWindow || !this.tabManager) return;
     const activeTab = this.tabManager.getActiveTab();
     if (!activeTab) return;
@@ -137,8 +148,16 @@ export class WindowManager {
   }
 
   /**
+   * Whether the browser view is currently meant to be visible.
+   */
+  isTargetViewVisible(): boolean {
+    return this.targetViewVisible;
+  }
+
+  /**
    * Calculate bounds for the target browser view area.
-   * Layout: left sidebar (220px) + tab bar (32px) + browser panel (40px) = 72px top offset.
+   * Browser view fills all remaining space below the tab bar + browser panel.
+   * Sidebar (221px) is on the left.
    */
   private calculateTargetBounds(): Electron.Rectangle {
     if (!this.mainWindow) return { x: 0, y: 0, width: 0, height: 0 };
@@ -147,14 +166,10 @@ export class WindowManager {
     const width = contentBounds.width;
     const height = contentBounds.height;
     const sidebarWidth = 221; // 220px sidebar + 1px border-right
-    // Renderer fixed-height elements (must match actual rendered sizes):
     const browserPanelHeight = 49; // padding 8+8 + Input 32 + borderBottom 1
-    const topOffset = browserPanelHeight + TAB_BAR_HEIGHT; // 49 + 33 = 82
-    const dragHandleHeight = 6;
-    const controlBarHeight = 49; // padding 8+8 + Button 32 + borderBottom 1
-    // Available flex space matches renderer's flex-grow split
-    const availableFlexSpace = height - topOffset - dragHandleHeight - controlBarHeight;
-    const browserHeight = Math.floor(Math.max(0, availableFlexSpace) * this.browserRatio);
+    const statusBarHeight = 26;
+    const topOffset = TITLEBAR_HEIGHT + TAB_BAR_HEIGHT + browserPanelHeight;
+    const browserHeight = Math.max(0, height - topOffset - statusBarHeight);
 
     return {
       x: sidebarWidth,

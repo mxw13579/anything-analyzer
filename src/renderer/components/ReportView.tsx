@@ -1,19 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Alert, Button, Descriptions, Empty, Input, Space, Spin, Tag, Typography } from 'antd'
-import {
-  ReloadOutlined,
-  RobotOutlined,
-  FileTextOutlined,
-  ExportOutlined,
-  SendOutlined,
-  MessageOutlined
-} from '@ant-design/icons'
+import { Button, Tag, Empty, Spinner } from '../ui'
+import { IconRobot, IconFileText } from '../ui/Icons'
+import { useLocale } from '../i18n'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
-import type { AnalysisReport, ChatMessage } from '@shared/types'
-
-const { Text, Title } = Typography
+import type { AnalysisReport, ChatMessage, CapturedRequest, JsHookRecord } from '@shared/types'
+import styles from './ReportView.module.css'
 
 interface ReportViewProps {
   report: AnalysisReport | null
@@ -21,13 +14,17 @@ interface ReportViewProps {
   analysisError: string | null
   streamingContent: string
   onReAnalyze: (purpose?: string) => void
+  onCancelAnalysis: () => void
   chatHistory: ChatMessage[]
   isChatting: boolean
   chatError: string | null
   onSendFollowUp: (message: string) => void
+  // Context panel data
+  sessionName?: string
+  requests?: CapturedRequest[]
+  hooks?: JsHookRecord[]
 }
 
-// Format token count for display
 function formatTokens(tokens: number | null): string {
   if (tokens === null) return '--'
   return tokens.toLocaleString()
@@ -37,131 +34,77 @@ function formatTokens(tokens: number | null): string {
 const StreamingDisplay: React.FC<{ content: string }> = ({ content }) => {
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Auto-scroll to bottom as content streams in
   useEffect(() => {
-    if (containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight
-    }
+    if (containerRef.current) containerRef.current.scrollTop = containerRef.current.scrollHeight
   }, [content])
 
   return (
-    <div
-      ref={containerRef}
-      style={{
-        padding: 16,
-        overflow: 'auto',
-        background: 'rgba(255, 255, 255, 0.02)',
-        borderRadius: 8
-      }}
-    >
-      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-        {content}
-      </ReactMarkdown>
-      <span
-        style={{
-          display: 'inline-block',
-          width: 8,
-          height: 16,
-          background: '#1677ff',
-          animation: 'blink 1s step-end infinite',
-          verticalAlign: 'text-bottom',
-          marginLeft: 2
-        }}
-      />
-      <style>{`
-        @keyframes blink {
-          50% { opacity: 0; }
-        }
-      `}</style>
+    <div ref={containerRef} className={styles.streamingContainer}>
+      <div className="report-markdown-content">
+        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+          {content}
+        </ReactMarkdown>
+        <span className={styles.cursor} />
+      </div>
     </div>
   )
 }
 
-// Report metadata panel
-const ReportMeta: React.FC<{ report: AnalysisReport }> = ({ report }) => (
-  <Descriptions
-    size="small"
-    column={{ xs: 1, sm: 2, md: 4 }}
-    style={{ marginBottom: 16 }}
-    bordered
-  >
-    <Descriptions.Item label="Provider">{report.llm_provider}</Descriptions.Item>
-    <Descriptions.Item label="Model">{report.llm_model}</Descriptions.Item>
-    <Descriptions.Item label="Prompt Tokens">
-      {formatTokens(report.prompt_tokens)}
-    </Descriptions.Item>
-    <Descriptions.Item label="Completion Tokens">
-      {formatTokens(report.completion_tokens)}
-    </Descriptions.Item>
-    <Descriptions.Item label="Created">
-      {new Date(report.created_at).toLocaleString()}
-    </Descriptions.Item>
-    {report.prompt_tokens != null && report.completion_tokens != null && (
-      <Descriptions.Item label="Total Tokens">
-        {formatTokens(report.prompt_tokens + report.completion_tokens)}
-      </Descriptions.Item>
-    )}
-  </Descriptions>
-)
-
 // Quick follow-up suggestions
-const QUICK_QUESTIONS = [
-  '生成完整的 Python 复现代码',
-  '详细解释加密/签名流程',
-  '分析潜在的安全风险',
-  '列出所有 API 的请求参数和响应结构',
-]
+const QUICK_QUESTION_KEYS = [
+  'report.genPython',
+  'report.explainCrypto',
+  'report.securityRisks',
+  'report.listApiParams',
+] as const
 
-// Chat input component with quick suggestions
-const ChatInput: React.FC<{ onSend: (msg: string) => void; disabled: boolean }> = ({ onSend, disabled }) => {
-  const [input, setInput] = useState('')
-
-  const handleSend = () => {
-    const trimmed = input.trim()
-    if (!trimmed || disabled) return
-    onSend(trimmed)
-    setInput('')
+// Extract unique API endpoints from requests
+function extractEndpoints(requests: CapturedRequest[]): { method: string; path: string }[] {
+  const seen = new Set<string>()
+  const endpoints: { method: string; path: string }[] = []
+  for (const r of requests) {
+    try {
+      const url = new URL(r.url)
+      const key = `${r.method} ${url.pathname}`
+      if (!seen.has(key)) {
+        seen.add(key)
+        endpoints.push({ method: r.method, path: url.pathname })
+      }
+    } catch {
+      // skip invalid URLs
+    }
   }
+  return endpoints.slice(0, 8) // limit to top 8
+}
 
-  return (
-    <div>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-        {QUICK_QUESTIONS.map((q, i) => (
-          <Tag
-            key={i}
-            color="default"
-            style={{ cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1 }}
-            onClick={() => { if (!disabled) onSend(q) }}
-          >
-            {q}
-          </Tag>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <Input.TextArea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="输入追问..."
-          autoSize={{ minRows: 1, maxRows: 4 }}
-          disabled={disabled}
-          onPressEnter={(e) => {
-            if (!e.shiftKey) {
-              e.preventDefault()
-              handleSend()
-            }
-          }}
-          style={{ flex: 1 }}
-        />
-        <Button
-          type="primary"
-          icon={<SendOutlined />}
-          onClick={handleSend}
-          disabled={disabled || !input.trim()}
-          style={{ alignSelf: 'flex-end' }}
-        />
-      </div>
-    </div>
-  )
+function getMethodColor(method: string): string {
+  switch (method.toUpperCase()) {
+    case 'GET': return 'var(--color-success)'
+    case 'POST': return 'var(--color-info)'
+    case 'PUT': return 'var(--color-orange)'
+    case 'DELETE': return 'var(--color-error)'
+    default: return 'var(--text-muted)'
+  }
+}
+
+// Summarize hook types
+function summarizeHooks(hooks: JsHookRecord[]): { type: string; count: number; color: string }[] {
+  const counts: Record<string, number> = {}
+  for (const h of hooks) {
+    const type = h.hook_type || 'unknown'
+    counts[type] = (counts[type] || 0) + 1
+  }
+  const colorMap: Record<string, string> = {
+    crypto: 'var(--color-warning)',
+    fetch: 'var(--color-info)',
+    xhr: 'var(--color-info)',
+    cookie: 'var(--color-error)',
+  }
+  return Object.entries(counts).map(([type, count]) => ({
+    type,
+    count,
+    color: colorMap[type] || 'var(--text-muted)',
+  }))
 }
 
 const ReportView: React.FC<ReportViewProps> = ({
@@ -170,43 +113,148 @@ const ReportView: React.FC<ReportViewProps> = ({
   analysisError,
   streamingContent,
   onReAnalyze,
+  onCancelAnalysis,
   chatHistory,
   isChatting,
   chatError,
-  onSendFollowUp
+  onSendFollowUp,
+  sessionName,
+  requests = [],
+  hooks = [],
 }) => {
-  // Analyzing state: show streaming content or spinner
-  if (isAnalyzing) {
-    return (
-      <div style={{ padding: '16px 0' }}>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            marginBottom: 16,
-            gap: 8
-          }}
-        >
-          <Spin size="small" />
-          <Text>
-            <RobotOutlined style={{ marginRight: 4 }} />
-            AI is analyzing captured data...
-          </Text>
-        </div>
-        {streamingContent ? (
-          <StreamingDisplay content={streamingContent} />
-        ) : (
-          <div
-            style={{
-              textAlign: 'center',
-              padding: 40,
-              color: 'rgba(255, 255, 255, 0.45)'
-            }}
-          >
-            <Spin />
-            <div style={{ marginTop: 12 }}>Preparing analysis...</div>
+  const { t } = useLocale()
+  const [chatInput, setChatInput] = useState('')
+  const reportBodyRef = useRef<HTMLDivElement>(null)
+
+  // Auto-scroll report body when streaming
+  useEffect(() => {
+    if (streamingContent && reportBodyRef.current) {
+      reportBodyRef.current.scrollTop = reportBodyRef.current.scrollHeight
+    }
+  }, [streamingContent])
+
+  const handleSend = () => {
+    const trimmed = chatInput.trim()
+    if (!trimmed || isChatting) return
+    onSendFollowUp(trimmed)
+    setChatInput('')
+  }
+
+  const handleExport = async () => {
+    if (!report) return
+    const defaultName = `report-${new Date(report.created_at).toISOString().slice(0, 10)}-${report.llm_model}.md`
+    let content = report.report_content
+    const followUps = chatHistory.slice(2)
+    if (followUps.length > 0) {
+      content += '\n\n---\n\n## Follow-up Chat\n'
+      for (const msg of followUps) {
+        const label = msg.role === 'user' ? '**User**' : '**AI**'
+        content += `\n${label}:\n\n${msg.content}\n`
+      }
+    }
+    await window.electronAPI.exportFile(defaultName, content)
+  }
+
+  const endpoints = extractEndpoints(requests)
+  const hookSummary = summarizeHooks(hooks)
+
+  // Render right context panel
+  const renderContextPanel = () => (
+    <div className={styles.reportContext}>
+      <div className={styles.contextHeader}>{t('report.title')}</div>
+
+      {/* Session info */}
+      <div className={styles.contextSection}>
+        <div className={styles.contextLabel}>{t('status.session')}</div>
+        {sessionName && (
+          <div className={styles.contextItem}>
+            <div className={styles.contextDot} style={{ background: 'var(--color-purple)' }} />
+            {sessionName}
           </div>
         )}
+        <div className={styles.contextItem}>
+          <div className={styles.contextDot} style={{ background: 'var(--color-success)' }} />
+          {requests.length} {t('data.requests')} · {hooks.length} {t('data.hooks')}
+        </div>
+      </div>
+
+      {/* Key endpoints */}
+      {endpoints.length > 0 && (
+        <div className={styles.contextSection}>
+          <div className={styles.contextLabel}>Endpoints</div>
+          {endpoints.map((ep, i) => (
+            <div key={i} className={styles.contextEndpoint}>
+              <span className={styles.contextMethod} style={{ color: getMethodColor(ep.method) }}>
+                {ep.method}
+              </span>
+              <span className={styles.contextPath}>{ep.path}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Detected hooks */}
+      {hookSummary.length > 0 && (
+        <div className={styles.contextSection}>
+          <div className={styles.contextLabel}>{t('data.hooks')}</div>
+          {hookSummary.map((h, i) => (
+            <div key={i} className={styles.contextItem}>
+              <div className={styles.contextDot} style={{ background: h.color }} />
+              {h.type} × {h.count}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Report metadata if available */}
+      {report && (
+        <div className={styles.contextSection}>
+          <div className={styles.contextLabel}>LLM</div>
+          <div className={styles.contextItem}>
+            <div className={styles.contextDot} style={{ background: 'var(--color-info)' }} />
+            {report.llm_model}
+          </div>
+          {report.prompt_tokens != null && report.completion_tokens != null && (
+            <div className={styles.contextItem}>
+              <div className={styles.contextDot} style={{ background: 'var(--color-success)' }} />
+              {formatTokens(report.prompt_tokens + report.completion_tokens)} tokens
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+
+  // Analyzing state — full width, no context panel
+  if (isAnalyzing) {
+    return (
+      <div className={styles.reportContainer}>
+        <div className={styles.reportMain}>
+          <div className={styles.reportBody} ref={reportBodyRef}>
+            <div className={styles.reportScroll}>
+              <div className={styles.analyzingHeader}>
+                <Spinner size="sm" />
+                <span>
+                  <IconRobot size={14} style={{ marginRight: 4 }} />
+                  {t('report.analyzing')}
+                </span>
+                <div style={{ flex: 1 }} />
+                <Button size="sm" onClick={onCancelAnalysis}>
+                  {t('report.stopAnalysis')}
+                </Button>
+              </div>
+              {streamingContent ? (
+                <StreamingDisplay content={streamingContent} />
+              ) : (
+                <div className={styles.preparingState}>
+                  <Spinner />
+                  <div style={{ marginTop: 12 }}>{t('report.preparing')}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+        {renderContextPanel()}
       </div>
     )
   }
@@ -214,236 +262,141 @@ const ReportView: React.FC<ReportViewProps> = ({
   // No report yet
   if (!report) {
     return (
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: '100%',
-          minHeight: 200,
-          gap: 16
-        }}
-      >
-        {analysisError && (
-          <Alert
-            type="error"
-            showIcon
-            closable
-            message="分析失败"
-            description={analysisError}
-            style={{ width: '80%', maxWidth: 500, marginBottom: 8 }}
-          />
-        )}
-        <Empty
-          image={<FileTextOutlined style={{ fontSize: 48, color: 'rgba(255,255,255,0.25)' }} />}
-          description="No analysis report yet"
-        />
-        <Button type="primary" icon={<RobotOutlined />} onClick={() => onReAnalyze()}>
-          Start AI Analysis
-        </Button>
+      <div className={styles.reportContainer}>
+        <div className={styles.reportMain}>
+          <div className={styles.emptyState}>
+            {analysisError && (
+              <div className={styles.errorAlert}>
+                <div className={styles.errorTitle}>{t('report.analysisFailed')}</div>
+                <div className={styles.errorDesc}>{analysisError}</div>
+              </div>
+            )}
+            <Empty
+              icon={<IconFileText size={48} style={{ opacity: 0.25 }} />}
+              description={t('report.noReport')}
+            />
+            <Button variant="primary" icon={<IconRobot size={14} />} onClick={() => onReAnalyze()}>
+              {t('report.startAnalysis')}
+            </Button>
+          </div>
+        </div>
+        {renderContextPanel()}
       </div>
     )
   }
 
-  const handleExport = async () => {
-    if (!report) return
-    const defaultName = `report-${new Date(report.created_at).toISOString().slice(0, 10)}-${report.llm_model}.md`
-
-    // Build export content: report + follow-up chat
-    let content = report.report_content
-    const followUps = chatHistory.slice(2) // skip initial system + user prompt
-    if (followUps.length > 0) {
-      content += '\n\n---\n\n## 追问对话\n'
-      for (const msg of followUps) {
-        const label = msg.role === 'user' ? '**用户**' : '**AI**'
-        content += `\n${label}:\n\n${msg.content}\n`
-      }
-    }
-
-    await window.electronAPI.exportFile(defaultName, content)
-  }
-
-  // Display completed report
+  // Has report — full layout with toolbar + content + chat + context panel
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '8px 0' }}>
-      {/* Scrollable report content */}
-      <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: 12
-          }}
-        >
-          <Title level={5} style={{ margin: 0 }}>
-            <RobotOutlined style={{ marginRight: 8 }} />
-            协议分析报告
-          </Title>
-          <Space>
-            <Button
-              icon={<ExportOutlined />}
-              onClick={handleExport}
-              size="small"
-            >
-              Export .md
-            </Button>
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={() => onReAnalyze()}
-              size="small"
-            >
-              Re-analyze
-            </Button>
-          </Space>
+    <div className={styles.reportContainer}>
+      <div className={styles.reportMain}>
+        {/* Toolbar */}
+        <div className={styles.reportToolbar}>
+          <div className={styles.toolLabel}>{t('capture.autoDetect')}</div>
+          <button className={styles.toolBtnPrimary}>✦ {report.llm_model}</button>
+          <div className={styles.toolSpacer} />
+          <button className={styles.toolBtn} onClick={handleExport}>⬇ {t('report.export')}</button>
+          <button className={styles.toolBtn} onClick={() => onReAnalyze()}>↻ {t('report.reanalyze')}</button>
         </div>
 
-        <ReportMeta report={report} />
+        {/* Report content */}
+        <div className={styles.reportBody} ref={reportBodyRef}>
+          <div className={styles.reportScroll}>
+            {/* Metadata row */}
+            <div className={styles.metaRow}>
+              <span>✦ {report.llm_model}</span>
+              <span>◷ {new Date(report.created_at).toLocaleString()}</span>
+              <span>{requests.length} {t('data.requests')}</span>
+            </div>
 
-        <div
-          className="report-markdown-content"
-          style={{
-            padding: 16,
-            background: 'rgba(255, 255, 255, 0.02)',
-            borderRadius: 8,
-            overflowWrap: 'break-word',
-            wordBreak: 'break-word'
-          }}
-        >
-          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-            {report.report_content}
-          </ReactMarkdown>
-        </div>
-
-        {/* Chat history messages (scrollable with report) */}
-        {chatHistory.slice(2).map((msg, i) => (
-          <div
-            key={i}
-            style={{
-              marginTop: 12,
-              padding: '8px 12px',
-              borderRadius: 8,
-              background: msg.role === 'user'
-                ? 'rgba(22, 119, 255, 0.1)'
-                : 'rgba(255, 255, 255, 0.02)',
-              borderLeft: msg.role === 'user'
-                ? '3px solid #1677ff'
-                : '3px solid #52c41a',
-            }}
-          >
-            <Tag
-              color={msg.role === 'user' ? 'blue' : 'green'}
-              style={{ marginBottom: 4 }}
-            >
-              {msg.role === 'user' ? '你' : 'AI'}
-            </Tag>
-            <div className="report-markdown-content">
+            {/* Markdown content */}
+            <div className="report-markdown-content" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
               <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                {msg.content}
+                {report.report_content}
               </ReactMarkdown>
             </div>
-          </div>
-        ))}
 
-        {/* Streaming response */}
-        {isChatting && streamingContent && (
-          <div style={{
-            marginTop: 12,
-            padding: '8px 12px',
-            borderRadius: 8,
-            background: 'rgba(255, 255, 255, 0.02)',
-            borderLeft: '3px solid #52c41a',
-          }}>
-            <Tag color="green" style={{ marginBottom: 4 }}>AI</Tag>
-            <StreamingDisplay content={streamingContent} />
-          </div>
-        )}
+            {/* Chat history */}
+            {chatHistory.slice(2).map((msg, i) => (
+              <div key={i} className={`${styles.chatMsg} ${msg.role === 'user' ? styles.chatMsgUser : styles.chatMsgAi}`}>
+                <Tag color={msg.role === 'user' ? 'info' : 'success'} style={{ marginBottom: 4 }}>
+                  {msg.role === 'user' ? 'You' : 'AI'}
+                </Tag>
+                <div className="report-markdown-content">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                    {msg.content}
+                  </ReactMarkdown>
+                </div>
+              </div>
+            ))}
 
-        {isChatting && !streamingContent && (
-          <div style={{ textAlign: 'center', padding: 12 }}>
-            <Spin size="small" />
-            <Text style={{ marginLeft: 8, color: 'rgba(255, 255, 255, 0.45)' }}>思考中...</Text>
-          </div>
-        )}
+            {/* Streaming follow-up */}
+            {isChatting && streamingContent && (
+              <div className={`${styles.chatMsg} ${styles.chatMsgAi}`}>
+                <Tag color="success" style={{ marginBottom: 4 }}>AI</Tag>
+                <StreamingDisplay content={streamingContent} />
+              </div>
+            )}
 
-        {chatError && (
-          <Alert
-            type="error"
-            showIcon
-            closable
-            message="追问失败"
-            description={chatError}
-            style={{ marginTop: 12 }}
-          />
-        )}
+            {isChatting && !streamingContent && (
+              <div style={{ textAlign: 'center', padding: 12 }}>
+                <Spinner size="sm" />
+                <span style={{ marginLeft: 8, color: 'var(--text-muted)' }}>{t('report.thinking')}</span>
+              </div>
+            )}
+
+            {chatError && (
+              <div className={styles.errorAlert} style={{ marginTop: 12 }}>
+                <div className={styles.errorTitle}>{t('report.followUpFailed')}</div>
+                <div className={styles.errorDesc}>{chatError}</div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Chat section */}
+        <div className={styles.chatSection}>
+          <div className={styles.chatSuggestions}>
+            {QUICK_QUESTION_KEYS.map((key, i) => {
+              const text = t(key)
+              return (
+                <button
+                  key={i}
+                  className={styles.chatChip}
+                  disabled={isChatting}
+                  onClick={() => { if (!isChatting) onSendFollowUp(text) }}
+                >
+                  {text}
+                </button>
+              )
+            })}
+          </div>
+          <div className={styles.chatInputBar}>
+            <input
+              className={styles.chatInput}
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              placeholder={t('report.askFollowUp')}
+              disabled={isChatting}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  handleSend()
+                }
+              }}
+            />
+            <button
+              className={styles.chatSend}
+              onClick={handleSend}
+              disabled={isChatting || !chatInput.trim()}
+            >
+              ↑
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Fixed chat input at bottom */}
-      <div style={{
-        flexShrink: 0,
-        borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-        paddingTop: 10,
-        marginTop: 8,
-      }}>
-        <ChatInput onSend={onSendFollowUp} disabled={isChatting} />
-      </div>
-
-      <style>{`
-        .report-markdown-content h1,
-        .report-markdown-content h2,
-        .report-markdown-content h3 {
-          color: rgba(255, 255, 255, 0.85);
-          margin-top: 16px;
-        }
-        .report-markdown-content p {
-          color: rgba(255, 255, 255, 0.65);
-          line-height: 1.8;
-        }
-        .report-markdown-content code {
-          background: rgba(255, 255, 255, 0.08);
-          padding: 2px 6px;
-          border-radius: 4px;
-          font-size: 13px;
-        }
-        .report-markdown-content pre {
-          background: rgba(0, 0, 0, 0.3);
-          padding: 12px;
-          border-radius: 6px;
-          overflow-x: auto;
-        }
-        .report-markdown-content pre code {
-          background: transparent;
-          padding: 0;
-        }
-        .report-markdown-content table {
-          width: 100%;
-          border-collapse: collapse;
-          display: block;
-          overflow-x: auto;
-        }
-        .report-markdown-content th,
-        .report-markdown-content td {
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          padding: 8px;
-          text-align: left;
-        }
-        .report-markdown-content th {
-          background: rgba(255, 255, 255, 0.04);
-        }
-        .report-markdown-content blockquote {
-          border-left: 3px solid #1677ff;
-          padding-left: 12px;
-          color: rgba(255, 255, 255, 0.55);
-        }
-        .report-markdown-content ul,
-        .report-markdown-content ol {
-          color: rgba(255, 255, 255, 0.65);
-        }
-        .report-markdown-content a {
-          color: #1677ff;
-        }
-      `}</style>
+      {/* Right context panel */}
+      {renderContextPanel()}
     </div>
   )
 }

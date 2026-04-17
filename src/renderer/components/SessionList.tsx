@@ -1,9 +1,9 @@
 import React, { useState } from 'react'
-import { List, Button, Badge, Typography, Modal, Form, Input, Empty } from 'antd'
-import { PlusOutlined, GlobalOutlined, DeleteOutlined } from '@ant-design/icons'
+import { Button, Input, Modal, Empty } from '../ui'
+import { IconPlus, IconDelete } from '../ui/Icons'
+import { useLocale } from '../i18n'
 import type { Session } from '../../shared/types'
-
-const { Text } = Typography
+import styles from './SessionList.module.css'
 
 interface SessionListProps {
   sessions: Session[]
@@ -11,13 +11,27 @@ interface SessionListProps {
   onSelect: (id: string) => void
   onCreate: (name: string, url: string) => Promise<void>
   onDelete: (id: string) => Promise<void>
+  onOpenSettings: () => void
+  activeRequestCount?: number
 }
 
-// Map session status to badge color
-const statusColorMap: Record<string, string> = {
-  running: '#52c41a',
-  paused: '#faad14',
-  stopped: '#8c8c8c'
+/**
+ * Compute session bar color based on status:
+ * - running/paused → green (#4ade80) — capturing
+ * - stopped with target_url → blue (#60a5fa) — pending analysis
+ * - stopped no url → gray (#333) — idle
+ */
+function getBarColor(session: Session): string {
+  if (session.status === 'running' || session.status === 'paused') return 'var(--color-success)'
+  if (session.status === 'stopped' && session.target_url) return 'var(--color-info)'
+  return 'var(--text-disabled)'
+}
+
+function getStatusSymbol(session: Session): { symbol: string; color: string; label: string } {
+  if (session.status === 'running') return { symbol: '●', color: 'var(--color-success)', label: '捕获中' }
+  if (session.status === 'paused') return { symbol: '⏸', color: 'var(--color-warning)', label: '已暂停' }
+  if (session.status === 'stopped' && session.target_url) return { symbol: '◎', color: 'var(--color-info)', label: '待分析' }
+  return { symbol: '■', color: 'var(--text-muted)', label: '已停止' }
 }
 
 const SessionList: React.FC<SessionListProps> = ({
@@ -25,13 +39,20 @@ const SessionList: React.FC<SessionListProps> = ({
   currentSessionId,
   onSelect,
   onCreate,
-  onDelete
+  onDelete,
+  onOpenSettings,
+  activeRequestCount = 0,
 }) => {
+  const { t } = useLocale()
   const [modalOpen, setModalOpen] = useState(false)
   const [creating, setCreating] = useState(false)
-  const [form] = Form.useForm()
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const [formName, setFormName] = useState('')
+  const [formUrl, setFormUrl] = useState('')
+  const [nameError, setNameError] = useState('')
+  const [urlError, setUrlError] = useState('')
 
   const openModal = () => {
     setModalOpen(true)
@@ -40,20 +61,43 @@ const SessionList: React.FC<SessionListProps> = ({
 
   const closeModal = () => {
     setModalOpen(false)
-    form.resetFields()
+    setFormName('')
+    setFormUrl('')
+    setNameError('')
+    setUrlError('')
     window.electronAPI.setTargetViewVisible(true)
   }
 
+  const validate = (): boolean => {
+    let valid = true
+    if (!formName.trim()) {
+      setNameError('Please enter a session name')
+      valid = false
+    } else {
+      setNameError('')
+    }
+    if (formUrl.trim()) {
+      try {
+        new URL(formUrl)
+        setUrlError('')
+      } catch {
+        setUrlError('Please enter a valid URL')
+        valid = false
+      }
+    } else {
+      setUrlError('')
+    }
+    return valid
+  }
+
   const handleCreate = async () => {
+    if (!validate()) return
+    setCreating(true)
     try {
-      const values = await form.validateFields()
-      setCreating(true)
-      await onCreate(values.name, values.targetUrl || '')
-      form.resetFields()
-      setModalOpen(false)
-      window.electronAPI.setTargetViewVisible(true)
+      await onCreate(formName.trim(), formUrl.trim())
+      closeModal()
     } catch {
-      // validation failed or create failed, do nothing
+      // create failed
     } finally {
       setCreating(false)
     }
@@ -72,181 +116,101 @@ const SessionList: React.FC<SessionListProps> = ({
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      {/* Header */}
-      <div
-        style={{
-          padding: '16px',
-          borderBottom: '1px solid #303030',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between'
-        }}
-      >
-        <Text strong style={{ fontSize: 16 }}>
-          Sessions
-        </Text>
-      </div>
+    <div className={styles.container}>
+      {/* Section Label */}
+      <div className={styles.sectionLabel}>SESSIONS</div>
 
       {/* Session list */}
-      <div style={{ flex: 1, overflow: 'auto', padding: '8px 0' }}>
+      <div className={styles.list}>
         {sessions.length === 0 ? (
-          <Empty
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description="No sessions"
-            style={{ marginTop: 40 }}
-          />
+          <Empty description="No sessions" style={{ marginTop: 40 }} />
         ) : (
-          <List
-            dataSource={sessions}
-            renderItem={(session) => (
-              <List.Item
+          sessions.map((session) => {
+            const isActive = session.id === currentSessionId
+            const isHovered = session.id === hoveredId
+            const barColor = getBarColor(session)
+            const status = getStatusSymbol(session)
+            return (
+              <div
+                key={session.id}
+                className={`${styles.item} ${isActive ? styles.itemActive : ''}`}
                 onClick={() => onSelect(session.id)}
                 onMouseEnter={() => setHoveredId(session.id)}
                 onMouseLeave={() => setHoveredId(null)}
-                style={{
-                  padding: '10px 16px',
-                  cursor: 'pointer',
-                  background:
-                    session.id === currentSessionId
-                      ? 'rgba(22, 119, 255, 0.15)'
-                      : session.id === hoveredId
-                        ? 'rgba(255,255,255,0.04)'
-                        : 'transparent',
-                  borderLeft:
-                    session.id === currentSessionId
-                      ? '3px solid #1677ff'
-                      : '3px solid transparent',
-                  borderBottom: '1px solid #303030',
-                  transition: 'background 0.2s'
-                }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', width: '100%', minWidth: 0 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        marginBottom: 4
-                      }}
-                    >
-                      <Badge
-                        color={statusColorMap[session.status] || '#8c8c8c'}
-                        style={{ flexShrink: 0 }}
-                      />
-                      <Text
-                        strong
-                        ellipsis
-                        style={{ flex: 1, fontSize: 14 }}
-                        title={session.name}
-                      >
-                        {session.name}
-                      </Text>
-                    </div>
-                    {session.target_url ? (
-                      <Text
-                        type="secondary"
-                        ellipsis
-                        style={{ fontSize: 12, display: 'block', paddingLeft: 14 }}
-                        title={session.target_url}
-                      >
-                        <GlobalOutlined style={{ marginRight: 4 }} />
-                        {session.target_url}
-                      </Text>
-                    ) : (
-                      <Text
-                        type="secondary"
-                        style={{ fontSize: 12, display: 'block', paddingLeft: 14, fontStyle: 'italic' }}
-                      >
-                        <GlobalOutlined style={{ marginRight: 4 }} />
-                        仅代理捕获
-                      </Text>
+                <div className={styles.sessionBar} style={{ background: barColor }} />
+                <div className={styles.sessionInfo}>
+                  <div className={styles.sessionName}>{session.name}</div>
+                  <div className={styles.sessionMeta}>
+                    <span style={{ color: status.color }}>{status.symbol} {status.label}</span>
+                    {isActive && activeRequestCount > 0 && (
+                      <span className={styles.sessionCount}> · {activeRequestCount} reqs</span>
                     )}
                   </div>
-
-                  {/* Hover 时显示删除按钮 */}
-                  {hoveredId === session.id && (
-                    <DeleteOutlined
-                      onClick={(e) => handleDelete(e, session.id)}
-                      style={{
-                        color: deletingId === session.id ? '#595959' : '#8c8c8c',
-                        fontSize: 13,
-                        flexShrink: 0,
-                        marginLeft: 8,
-                        padding: 4,
-                        borderRadius: 4,
-                        transition: 'color 0.2s',
-                        cursor: deletingId === session.id ? 'wait' : 'pointer',
-                      }}
-                      onMouseEnter={(e) => {
-                        if (deletingId !== session.id) {
-                          ;(e.currentTarget as HTMLElement).style.color = '#ff4d4f'
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        ;(e.currentTarget as HTMLElement).style.color = '#8c8c8c'
-                      }}
-                    />
-                  )}
                 </div>
-              </List.Item>
-            )}
-          />
+
+                {isHovered && (
+                  <span
+                    className={`${styles.deleteBtn} ${deletingId === session.id ? styles.deleteBtnDisabled : ''}`}
+                    onClick={(e) => handleDelete(e, session.id)}
+                  >
+                    <IconDelete size={13} />
+                  </span>
+                )}
+              </div>
+            )
+          })
         )}
       </div>
 
       {/* New session button */}
-      <div style={{ padding: '12px 16px', borderTop: '1px solid #303030' }}>
-        <Button
-          type="dashed"
-          icon={<PlusOutlined />}
-          block
-          onClick={() => openModal()}
-        >
-          New Session
-        </Button>
+      <div className={styles.footer}>
+        <div className={styles.newBtn} onClick={openModal}>
+          + {t('session.newSession').replace('+ ', '')}
+        </div>
+      </div>
+
+      {/* Bottom: Settings + Version */}
+      <div className={styles.sidebarBottom}>
+        <div className={styles.bottomBtn} onClick={onOpenSettings}>⚙ {t('settings.title')}</div>
+        <div className={styles.versionText}>v3.1.0</div>
       </div>
 
       {/* Create session modal */}
       <Modal
-        title="Create New Session"
         open={modalOpen}
-        onOk={handleCreate}
-        onCancel={closeModal}
-        confirmLoading={creating}
-        okText="Create"
-        destroyOnClose
+        onClose={closeModal}
+        title={t('session.createTitle')}
+        footer={
+          <>
+            <Button onClick={closeModal}>{t('session.cancel')}</Button>
+            <Button variant="primary" onClick={handleCreate} loading={creating}>
+              {t('session.create')}
+            </Button>
+          </>
+        }
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item
-            name="name"
-            label="Session Name"
-            rules={[{ required: true, message: 'Please enter a session name' }]}
-          >
-            <Input placeholder="e.g. Login Flow Analysis" />
-          </Form.Item>
-          <Form.Item
-            name="targetUrl"
-            label="Target URL"
-            tooltip="留空则仅通过代理捕获流量"
-            rules={[
-              {
-                validator: (_, value) => {
-                  if (!value || value.trim() === '') return Promise.resolve()
-                  try {
-                    new URL(value)
-                    return Promise.resolve()
-                  } catch {
-                    return Promise.reject(new Error('请输入合法 URL'))
-                  }
-                },
-              },
-            ]}
-          >
-            <Input placeholder="https://example.com（可选，代理抓包可留空）" />
-          </Form.Item>
-        </Form>
+        <div className={styles.formGroup}>
+          <label className={styles.formLabel}>{t('session.name')}</label>
+          <Input
+            value={formName}
+            onChange={(e) => setFormName(e.target.value)}
+            placeholder={t('session.namePlaceholder')}
+            autoFocus
+            onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+          />
+          {nameError && <div className={styles.formError}>{nameError}</div>}
+        </div>
+        <div className={styles.formGroup}>
+          <label className={styles.formLabel}>{t('session.targetUrl')}</label>
+          <Input
+            value={formUrl}
+            onChange={(e) => setFormUrl(e.target.value)}
+            placeholder={t('session.targetUrlPlaceholder')}
+          />
+          <div className={styles.formHint}>Leave empty to capture traffic via proxy only</div>
+          {urlError && <div className={styles.formError}>{urlError}</div>}
+        </div>
       </Modal>
     </div>
   )

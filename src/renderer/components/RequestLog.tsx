@@ -1,7 +1,8 @@
-import React, { useMemo, useCallback, useRef } from 'react'
-import { Table, Tag } from 'antd'
-import type { ColumnsType, TableRowSelection } from 'antd/es/table/interface'
+import React, { useMemo, useCallback, useState } from 'react'
+import { VirtualTable } from '../ui'
+import type { VTColumn, VTRowSelection } from '../ui'
 import type { CapturedRequest } from '@shared/types'
+import styles from './RequestLog.module.css'
 
 interface RequestLogProps {
   requests: CapturedRequest[]
@@ -13,26 +14,25 @@ interface RequestLogProps {
 
 // Color mapping for HTTP methods
 const METHOD_COLORS: Record<string, string> = {
-  GET: 'blue',
-  POST: 'green',
-  PUT: 'orange',
-  DELETE: 'red',
-  PATCH: 'cyan',
-  HEAD: 'default',
-  OPTIONS: 'default'
+  GET: 'var(--color-success)',
+  POST: 'var(--color-info)',
+  PUT: 'var(--color-orange)',
+  DELETE: 'var(--color-error)',
+  PATCH: 'var(--color-info)',
+  HEAD: 'var(--text-muted)',
+  OPTIONS: 'var(--text-muted)',
 }
 
 // Color for status codes
 function getStatusColor(code: number | null): string {
-  if (code === null) return 'default'
-  if (code >= 200 && code < 300) return 'green'
-  if (code >= 300 && code < 400) return 'blue'
-  if (code >= 400 && code < 500) return 'gold'
-  if (code >= 500) return 'red'
-  return 'default'
+  if (code === null) return 'var(--text-muted)'
+  if (code >= 200 && code < 300) return 'var(--color-success)'
+  if (code >= 300 && code < 400) return 'var(--color-warning)'
+  if (code >= 400 && code < 500) return 'var(--color-error)'
+  if (code >= 500) return 'var(--color-error)'
+  return 'var(--text-muted)'
 }
 
-// Extract path portion from a full URL
 function extractPath(url: string): string {
   try {
     const parsed = new URL(url)
@@ -42,171 +42,166 @@ function extractPath(url: string): string {
   }
 }
 
-// Extract host (domain + port) from a full URL
 function extractHost(url: string): string {
   try {
-    const parsed = new URL(url)
-    return parsed.host
+    return new URL(url).host
   } catch {
     return url
   }
 }
 
 const RequestLog: React.FC<RequestLogProps> = ({ requests, selectedId, onSelect, selectedSeqs, onSelectedSeqsChange }) => {
-  // Track open filter dropdown count — hide native browser view while any is open
-  const openFilterCount = useRef(0)
-  const handleFilterDropdownOpenChange = useCallback((open: boolean) => {
-    openFilterCount.current += open ? 1 : -1
-    window.electronAPI.setTargetViewVisible(openFilterCount.current <= 0)
-  }, [])
-  // Collect unique domains from current requests for filter dropdown
-  const domainFilters = useMemo(() => {
-    const hosts = new Set<string>()
-    for (const r of requests) {
-      hosts.add(extractHost(r.url))
-    }
-    return Array.from(hosts).sort().map(h => ({ text: h, value: h }))
+  const [searchText, setSearchText] = useState('')
+
+  // Pre-filter by search text only (method filter now handled by VirtualTable column filter)
+  const filteredRequests = useMemo(() => {
+    if (!searchText.trim()) return requests
+    const q = searchText.trim().toLowerCase()
+    return requests.filter(r => r.url.toLowerCase().includes(q))
+  }, [requests, searchText])
+
+  // Collect unique methods for column filter
+  const methodFilters = useMemo(() => {
+    const methods = new Set(requests.map(r => r.method.toUpperCase()))
+    return Array.from(methods).sort().map(m => ({ text: m, value: m }))
   }, [requests])
 
-  const columns: ColumnsType<CapturedRequest> = useMemo(
-    () => [
-      {
-        title: '#',
-        dataIndex: 'sequence',
-        key: 'sequence',
-        width: 60,
-        sorter: (a, b) => a.sequence - b.sequence
+  // Collect unique domains for column filter
+  const domainFilters = useMemo(() => {
+    const domains = new Set(requests.map(r => extractHost(r.url)))
+    return Array.from(domains).sort().map(d => ({ text: d, value: d }))
+  }, [requests])
+
+  // Collect unique sources for column filter
+  const sourceFilters = useMemo(() => [
+    { text: 'CDP', value: 'cdp' },
+    { text: 'Proxy', value: 'proxy' },
+  ], [])
+
+  const columns: VTColumn<CapturedRequest>[] = useMemo(() => [
+    {
+      key: 'sequence',
+      title: '#',
+      dataIndex: 'sequence',
+      width: 50,
+      render: (val) => <span style={{ color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{val as number}</span>,
+      sorter: (a, b) => a.sequence - b.sequence,
+    },
+    {
+      key: 'method',
+      title: 'Method',
+      dataIndex: 'method',
+      width: 100,
+      filters: methodFilters,
+      onFilter: (value, record) => record.method.toUpperCase() === value,
+      render: (val) => {
+        const m = (val as string).toUpperCase()
+        return <span style={{ color: METHOD_COLORS[m] || 'var(--text-muted)', fontWeight: 600 }}>{m}</span>
       },
-      {
-        title: 'Source',
-        dataIndex: 'source',
-        key: 'source',
-        width: 70,
-        render: (source: string | undefined) =>
-          source === 'proxy'
-            ? <Tag color="green">代理</Tag>
-            : <Tag color="blue">浏览器</Tag>,
-        filters: [
-          { text: '浏览器', value: 'cdp' },
-          { text: '代理', value: 'proxy' },
-        ],
-        onFilter: (value, record) =>
-          (record.source || 'cdp') === (value as string),
-        onFilterDropdownOpenChange: handleFilterDropdownOpenChange,
+    },
+    {
+      key: 'domain',
+      title: 'Domain',
+      dataIndex: 'url',
+      width: 180,
+      filters: domainFilters,
+      filterSearch: true,
+      onFilter: (value, record) => extractHost(record.url) === value,
+      render: (_val, record) => (
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={extractHost(record.url)}>
+          {extractHost(record.url)}
+        </span>
+      ),
+    },
+    {
+      key: 'url',
+      title: 'Path',
+      dataIndex: 'url',
+      render: (_val, record) => (
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={record.url}>
+          {extractPath(record.url)}
+        </span>
+      ),
+    },
+    {
+      key: 'status_code',
+      title: 'Status',
+      dataIndex: 'status_code',
+      width: 70,
+      render: (val) => {
+        const code = val as number | null
+        return <span style={{ color: getStatusColor(code), fontWeight: 500 }}>{code ?? '--'}</span>
       },
-      {
-        title: 'Method',
-        dataIndex: 'method',
-        key: 'method',
-        width: 90,
-        render: (method: string) => (
-          <Tag color={METHOD_COLORS[method.toUpperCase()] || 'default'}>
-            {method.toUpperCase()}
-          </Tag>
-        ),
-        filters: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'].map((m) => ({
-          text: m,
-          value: m
-        })),
-        onFilter: (value, record) =>
-          record.method.toUpperCase() === (value as string),
-        onFilterDropdownOpenChange: handleFilterDropdownOpenChange,
+      sorter: (a, b) => (a.status_code ?? 0) - (b.status_code ?? 0),
+    },
+    {
+      key: 'duration_ms',
+      title: 'Time',
+      dataIndex: 'duration_ms',
+      width: 80,
+      render: (val) => {
+        const ms = val as number | null
+        return <span style={{ color: 'var(--text-muted)' }}>{ms !== null ? `${ms}ms` : '--'}</span>
       },
-      {
-        title: 'Domain',
-        key: 'domain',
-        width: 160,
-        ellipsis: true,
-        render: (_: unknown, record: CapturedRequest) => (
-          <span title={extractHost(record.url)} style={{ fontSize: 12, color: '#8c8c8c' }}>
-            {extractHost(record.url)}
-          </span>
-        ),
-        filters: domainFilters,
-        filterSearch: (input, record) =>
-          (record.value as string).toLowerCase().includes(input.toLowerCase()),
-        onFilter: (value, record) =>
-          extractHost(record.url) === (value as string),
-        onFilterDropdownOpenChange: handleFilterDropdownOpenChange,
-      },
-      {
-        title: 'URL',
-        dataIndex: 'url',
-        key: 'url',
-        ellipsis: true,
-        render: (_url: string, record: CapturedRequest) => (
-          <span title={record.url}>
-            {record.is_streaming ? <Tag color="orange" style={{ marginRight: 4 }}>SSE</Tag> : null}
-            {record.is_websocket ? <Tag color="purple" style={{ marginRight: 4 }}>WS</Tag> : null}
-            {extractPath(record.url)}
+      sorter: (a, b) => (a.duration_ms ?? 0) - (b.duration_ms ?? 0),
+    },
+    {
+      key: 'source',
+      title: 'Source',
+      dataIndex: 'source',
+      width: 90,
+      filters: sourceFilters,
+      onFilter: (value, record) => (record.source || 'cdp') === value,
+      render: (val) => {
+        const src = (val as string) || 'cdp'
+        const isProxy = src === 'proxy'
+        return (
+          <span className={isProxy ? styles.srcProxy : styles.srcCdp}>
+            {isProxy ? 'Proxy' : 'CDP'}
           </span>
         )
       },
-      {
-        title: 'Status',
-        dataIndex: 'status_code',
-        key: 'status_code',
-        width: 80,
-        render: (code: number | null) =>
-          code !== null ? (
-            <Tag color={getStatusColor(code)}>{code}</Tag>
-          ) : (
-            <Tag color="default">--</Tag>
-          ),
-        sorter: (a, b) => (a.status_code ?? 0) - (b.status_code ?? 0)
-      },
-      {
-        title: 'Duration',
-        dataIndex: 'duration_ms',
-        key: 'duration_ms',
-        width: 100,
-        render: (ms: number | null) =>
-          ms !== null ? `${ms} ms` : '--',
-        sorter: (a, b) => (a.duration_ms ?? 0) - (b.duration_ms ?? 0)
-      }
-    ],
-    [domainFilters]
-  )
+    },
+  ], [methodFilters, domainFilters, sourceFilters])
 
-  const handleRow = useCallback(
-    (record: CapturedRequest) => ({
-      onClick: () => onSelect(record),
-      style: {
-        cursor: 'pointer',
-        background: record.id === selectedId ? 'rgba(22, 119, 255, 0.15)' : undefined
-      }
-    }),
-    [selectedId, onSelect]
-  )
+  const handleRow = useCallback((record: CapturedRequest) => ({
+    onClick: () => onSelect(record),
+    className: record.id === selectedId ? 'vtRowHighlight' : '',
+  }), [selectedId, onSelect])
 
-  // 多选配置：使用 sequence 作为选择键
-  const rowSelection: TableRowSelection<CapturedRequest> = useMemo(
-    () => ({
-      selectedRowKeys: selectedSeqs,
-      onChange: (_selectedKeys: React.Key[], selectedRows: CapturedRequest[]) => {
-        onSelectedSeqsChange(selectedRows.map(r => r.sequence))
-      },
-      columnWidth: 40,
-    }),
-    [selectedSeqs, onSelectedSeqsChange]
-  )
+  const rowSelection: VTRowSelection<CapturedRequest> = useMemo(() => ({
+    selectedKeys: selectedSeqs,
+    onChange: (_keys, rows) => {
+      onSelectedSeqsChange(rows.map(r => r.sequence))
+    },
+  }), [selectedSeqs, onSelectedSeqsChange])
 
   return (
-    <Table<CapturedRequest>
-      columns={columns}
-      dataSource={requests}
-      rowKey="sequence"
-      rowSelection={rowSelection}
-      size="small"
-      pagination={false}
-      scroll={{ y: 400 }}
-      virtual
-      onRow={handleRow}
-      rowClassName={(record) =>
-        record.id === selectedId ? 'ant-table-row-selected' : ''
-      }
-      locale={{ emptyText: 'No requests captured yet' }}
-    />
+    <div className={styles.container}>
+      {/* Search toolbar */}
+      <div className={styles.toolbar}>
+        <div className={styles.searchBox}>
+          <span className={styles.searchIcon}>🔍</span>
+          <input
+            className={styles.searchInput}
+            value={searchText}
+            onChange={e => setSearchText(e.target.value)}
+            placeholder="搜索 URL..."
+          />
+        </div>
+      </div>
+
+      {/* Request list with column headers and filters */}
+      <VirtualTable<CapturedRequest>
+        columns={columns}
+        data={filteredRequests}
+        rowKey="sequence"
+        rowHeight={32}
+        rowSelection={rowSelection}
+        onRow={handleRow}
+        emptyText="No requests captured yet"
+      />
+    </div>
   )
 }
 

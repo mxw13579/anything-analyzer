@@ -1,75 +1,146 @@
-import { useEffect } from 'react'
-import { Form, Input, Select, InputNumber, Button, message } from 'antd'
+import { useEffect, useState } from 'react'
+import { Input, PasswordInput, Select, InputNumber, Button, useToast } from '../../ui'
 import type { LLMProviderConfig, LLMProviderType, OpenAIApiType } from '@shared/types'
 
 const defaultUrls: Record<LLMProviderType, string> = {
   openai: 'https://api.openai.com/v1',
   anthropic: 'https://api.anthropic.com/v1',
-  custom: ''
+  custom: '',
+}
+
+const labelStyle: React.CSSProperties = {
+  display: 'block',
+  marginBottom: 4,
+  fontSize: 'var(--font-size-sm)',
+  color: 'var(--text-secondary)',
+}
+
+const fieldStyle: React.CSSProperties = {
+  marginBottom: 16,
 }
 
 export default function LLMSection() {
-  const [form] = Form.useForm()
-  const providerValue = Form.useWatch('name', form)
-  const showApiType = providerValue === 'openai' || providerValue === 'custom'
+  const toast = useToast()
+  const [name, setName] = useState<LLMProviderType>('openai')
+  const [apiType, setApiType] = useState<OpenAIApiType | undefined>('completions')
+  const [baseUrl, setBaseUrl] = useState(defaultUrls.openai)
+  const [apiKey, setApiKey] = useState('')
+  const [model, setModel] = useState('')
+  const [maxTokens, setMaxTokens] = useState<number>(4096)
+
+  const showApiType = name === 'openai' || name === 'custom'
 
   useEffect(() => {
     window.electronAPI.getLLMConfig().then(config => {
-      if (config) form.setFieldsValue(config)
+      if (config) {
+        setName(config.name)
+        setApiType(config.apiType ?? 'completions')
+        setBaseUrl(config.baseUrl)
+        setApiKey(config.apiKey)
+        setModel(config.model)
+        setMaxTokens(config.maxTokens ?? 4096)
+      }
     })
-  }, [form])
+  }, [])
 
-  const handleProviderChange = (value: LLMProviderType) => {
-    form.setFieldValue('baseUrl', defaultUrls[value])
-    if (value === 'anthropic') {
-      form.setFieldValue('apiType', undefined)
-    } else if (!form.getFieldValue('apiType')) {
-      form.setFieldValue('apiType', 'completions')
+  const handleProviderChange = (value: string) => {
+    const provider = value as LLMProviderType
+    setName(provider)
+    setBaseUrl(defaultUrls[provider])
+    if (provider === 'anthropic') {
+      setApiType(undefined)
+    } else if (!apiType) {
+      setApiType('completions')
     }
   }
 
   const handleSave = async () => {
-    const values = await form.validateFields()
-    await window.electronAPI.saveLLMConfig(values as LLMProviderConfig)
-    message.success('LLM 配置已保存')
+    if (!baseUrl || !apiKey || !model) {
+      toast.warning('请填写必填项（Base URL、API Key、Model）')
+      return
+    }
+    const config: LLMProviderConfig = {
+      name,
+      baseUrl,
+      apiKey,
+      model,
+      maxTokens,
+      ...(showApiType && apiType ? { apiType } : {}),
+    }
+    await window.electronAPI.saveLLMConfig(config)
+    toast.success('LLM 配置已保存')
   }
 
   return (
-    <Form
-      form={form}
-      layout="vertical"
-      initialValues={{ name: 'openai', baseUrl: defaultUrls.openai, maxTokens: 4096, apiType: 'completions' as OpenAIApiType }}
-    >
-      <Form.Item name="name" label="Provider" rules={[{ required: true }]}>
-        <Select onChange={handleProviderChange} options={[
-          { label: 'OpenAI', value: 'openai' },
-          { label: 'Anthropic', value: 'anthropic' },
-          { label: 'Custom (OpenAI Compatible)', value: 'custom' }
-        ]} />
-      </Form.Item>
+    <div>
+      <div style={fieldStyle}>
+        <label style={labelStyle}>Provider *</label>
+        <Select
+          value={name}
+          onChange={handleProviderChange}
+          options={[
+            { label: 'OpenAI', value: 'openai' },
+            { label: 'Anthropic', value: 'anthropic' },
+            { label: 'Custom (OpenAI Compatible)', value: 'custom' },
+          ]}
+        />
+      </div>
+
       {showApiType && (
-        <Form.Item name="apiType" label="API Type">
-          <Select options={[
-            { label: 'Chat Completions (/chat/completions)', value: 'completions' },
-            { label: 'Responses (/responses)', value: 'responses' }
-          ]} />
-        </Form.Item>
+        <div style={fieldStyle}>
+          <label style={labelStyle}>API Type</label>
+          <Select
+            value={apiType ?? 'completions'}
+            onChange={(v) => setApiType(v as OpenAIApiType)}
+            options={[
+              { label: 'Chat Completions (/chat/completions)', value: 'completions' },
+              { label: 'Responses (/responses)', value: 'responses' },
+            ]}
+          />
+        </div>
       )}
-      <Form.Item name="baseUrl" label="Base URL" rules={[{ required: true }]}>
-        <Input placeholder="https://api.openai.com/v1" />
-      </Form.Item>
-      <Form.Item name="apiKey" label="API Key" rules={[{ required: true }]}>
-        <Input.Password placeholder="sk-..." />
-      </Form.Item>
-      <Form.Item name="model" label="Model" rules={[{ required: true }]}>
-        <Input placeholder="gpt-4o / claude-sonnet-4-20250514 / ..." />
-      </Form.Item>
-      <Form.Item name="maxTokens" label="Max Tokens">
-        <InputNumber min={256} max={128000} style={{ width: '100%' }} />
-      </Form.Item>
-      <Button type="primary" block onClick={handleSave}>
+
+      <div style={fieldStyle}>
+        <label style={labelStyle}>Base URL *</label>
+        <Input
+          value={baseUrl}
+          onChange={e => setBaseUrl(e.target.value)}
+          placeholder="https://api.openai.com/v1"
+        />
+      </div>
+
+      <div style={fieldStyle}>
+        <label style={labelStyle}>API Key *</label>
+        <PasswordInput
+          value={apiKey}
+          onChange={e => setApiKey(e.target.value)}
+          placeholder="sk-..."
+        />
+      </div>
+
+      <div style={fieldStyle}>
+        <label style={labelStyle}>Model *</label>
+        <Input
+          value={model}
+          onChange={e => setModel(e.target.value)}
+          placeholder="gpt-4o / claude-sonnet-4-20250514 / ..."
+        />
+      </div>
+
+      <div style={fieldStyle}>
+        <label style={labelStyle}>Max Tokens</label>
+        <InputNumber
+          value={maxTokens}
+          onChange={v => v !== null && setMaxTokens(v)}
+          min={256}
+          max={128000}
+          style={{ width: '100%' }}
+        />
+      </div>
+
+      <Button variant="primary" block onClick={handleSave}>
         保存 LLM 配置
       </Button>
-    </Form>
+    </div>
   )
 }

@@ -29,6 +29,7 @@ userData/
 
 # Superpowers generated docs
 docs/superpowers/
+.superpowers/
 
 # Report copies
 report-*copy*

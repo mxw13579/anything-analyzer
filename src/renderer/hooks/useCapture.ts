@@ -28,6 +28,7 @@ interface UseCaptureReturn extends UseCaptureState {
   clearCaptureData: (sessionId: string) => Promise<void>;
   selectRequest: (request: CapturedRequest | null) => void;
   startAnalysis: (sessionId: string, purpose?: string, selectedSeqs?: number[]) => Promise<void>;
+  cancelAnalysis: (sessionId: string) => Promise<void>;
   sendFollowUp: (sessionId: string, message: string) => Promise<void>;
 }
 
@@ -109,30 +110,65 @@ export function useCapture(sessionId: string | null): UseCaptureReturn {
 
       // Only update if session hasn't changed
       if (sessionIdRef.current === sid) {
-        setState((prev) => ({
-          ...prev,
-          isAnalyzing: false,
-          streamingContent: "",
-          reports: [report, ...prev.reports],
-          chatHistory: [
-            { role: 'system' as const, content: '你是一位网站协议分析专家。基于之前的分析报告和捕获数据，回答用户的追问。保持技术精确，用中文回复。' },
-            { role: 'assistant' as const, content: report.report_content },
-          ],
-          chatError: null,
-        }));
+        setState((prev) => {
+          // Build context summary from captured data for follow-up chat
+          const reqSummary = prev.requests.slice(0, 50).map(r => {
+            let path = r.url
+            try { path = new URL(r.url).pathname } catch { /* keep full url */ }
+            return `#${r.sequence} ${r.method} ${path} → ${r.status_code ?? '?'}`
+          }).join('\n')
+
+          const hookSummary = prev.hooks.length > 0
+            ? '\n\nDetected hooks:\n' + prev.hooks.slice(0, 20).map(h =>
+                `[${h.hook_type}] ${h.function_name}`
+              ).join('\n')
+            : ''
+
+          const contextBlock = reqSummary
+            ? `\n\n<captured_data_summary>\nCaptured ${prev.requests.length} requests:\n${reqSummary}${prev.requests.length > 50 ? `\n... and ${prev.requests.length - 50} more` : ''}${hookSummary}\n</captured_data_summary>`
+            : ''
+
+          const systemContent = `你是一位网站协议分析专家。基于之前的分析报告和捕获数据，回答用户的追问。保持技术精确，用中文回复。
+
+你可以使用 get_request_detail 工具，通过传入请求序号(seq)来查看任意请求的完整详情（请求头、请求体、响应头、响应体）。当用户追问某个具体请求或需要更多细节时，请主动调用此工具获取数据。${contextBlock}`
+
+          return {
+            ...prev,
+            isAnalyzing: false,
+            streamingContent: "",
+            reports: [report, ...prev.reports],
+            chatHistory: [
+              { role: 'system' as const, content: systemContent },
+              { role: 'assistant' as const, content: report.report_content },
+            ],
+            chatError: null,
+          }
+        });
       }
     } catch (err) {
       console.error("Analysis failed:", err);
       const errMsg = err instanceof Error ? err.message : String(err);
+      const isCancelled = errMsg.includes("Analysis cancelled") || errMsg.includes("aborted");
       if (sessionIdRef.current === sid) {
         setState((prev) => ({
           ...prev,
           isAnalyzing: false,
           streamingContent: "",
-          analysisError: errMsg,
+          analysisError: isCancelled ? null : errMsg,
         }));
       }
     }
+  }, []);
+
+  // Cancel an in-progress analysis
+  const cancelAnalysis = useCallback(async (sid: string) => {
+    await window.electronAPI.cancelAnalysis(sid);
+    setState((prev) => ({
+      ...prev,
+      isAnalyzing: false,
+      streamingContent: "",
+      analysisError: null,
+    }));
   }, []);
 
   const chatHistoryRef = useRef<ChatMessage[]>([]);
@@ -184,22 +220,35 @@ export function useCapture(sessionId: string | null): UseCaptureReturn {
     // Load initial data
     loadData(sessionId);
 
-    // Listen for new captured requests
-    const handleRequest = (data: CapturedRequest) => {
-      if (data.session_id !== sessionIdRef.current) return;
-      setState((prev) => ({
-        ...prev,
-        requests: [...prev.requests, data],
-      }));
+    // --- Batched request/hook buffering for performance ---
+    const requestBuffer: CapturedRequest[] = [];
+    const hookBuffer: JsHookRecord[] = [];
+    let flushTimer: ReturnType<typeof setInterval> | null = null;
+
+    const flush = () => {
+      if (requestBuffer.length > 0 || hookBuffer.length > 0) {
+        const reqBatch = requestBuffer.splice(0);
+        const hookBatch = hookBuffer.splice(0);
+        setState((prev) => ({
+          ...prev,
+          requests: reqBatch.length > 0 ? [...prev.requests, ...reqBatch] : prev.requests,
+          hooks: hookBatch.length > 0 ? [...hookBatch, ...prev.hooks] : prev.hooks,
+        }));
+      }
     };
 
-    // Listen for new hook records
+    flushTimer = setInterval(flush, 300);
+
+    // Listen for new captured requests — buffer instead of immediate setState
+    const handleRequest = (data: CapturedRequest) => {
+      if (data.session_id !== sessionIdRef.current) return;
+      requestBuffer.push(data);
+    };
+
+    // Listen for new hook records — buffer instead of immediate setState
     const handleHook = (data: JsHookRecord) => {
       if (data.session_id !== sessionIdRef.current) return;
-      setState((prev) => ({
-        ...prev,
-        hooks: [data, ...prev.hooks],
-      }));
+      hookBuffer.push(data);
     };
 
     // Listen for analysis progress (streaming chunks)
@@ -216,6 +265,8 @@ export function useCapture(sessionId: string | null): UseCaptureReturn {
 
     // Cleanup listeners on unmount or session change
     return () => {
+      if (flushTimer) clearInterval(flushTimer);
+      flush(); // flush remaining buffered items
       window.electronAPI.removeAllListeners(IPC_CHANNELS.CAPTURE_REQUEST);
       window.electronAPI.removeAllListeners(IPC_CHANNELS.CAPTURE_HOOK);
       window.electronAPI.removeAllListeners(IPC_CHANNELS.AI_PROGRESS);
@@ -229,6 +280,7 @@ export function useCapture(sessionId: string | null): UseCaptureReturn {
     clearCaptureData,
     selectRequest,
     startAnalysis,
+    cancelAnalysis,
     sendFollowUp,
   };
 }

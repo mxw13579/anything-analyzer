@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react'
-import { InputNumber, Button, Space, Typography, Switch, Badge, message } from 'antd'
+import { InputNumber, Button, Switch, Badge, useToast } from '../../ui'
 import type { MCPServerSettings } from '@shared/types'
 
-const { Text } = Typography
-
 export default function MCPServerSection() {
+  const toast = useToast()
   const [enabled, setEnabled] = useState(false)
   const [port, setPort] = useState(23816)
   const [running, setRunning] = useState(false)
@@ -20,47 +19,56 @@ export default function MCPServerSection() {
   }, [])
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size={12}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%' }}>
       <div>
         <Badge
-          status={running ? 'success' : 'default'}
-          text={running ? '运行中' : '已停止'}
-          style={{ fontSize: 12 }}
+          color={running ? 'var(--color-success)' : 'var(--text-muted)'}
+          label={running ? '运行中' : '已停止'}
+          style={{ fontSize: 'var(--font-size-sm)' }}
         />
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Text>启用 MCP Server</Text>
+        <span style={{ fontSize: 'var(--font-size-base)' }}>启用 MCP Server</span>
         <Switch checked={enabled} onChange={setEnabled} />
       </div>
 
       {enabled && (
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Text>端口</Text>
+            <span style={{ fontSize: 'var(--font-size-base)' }}>端口</span>
             <InputNumber
               min={1024}
               max={65535}
               value={port}
-              onChange={v => v && setPort(v)}
+              onChange={v => v !== null && setPort(v)}
               style={{ width: 120 }}
             />
           </div>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            外部工具配置 URL: <Text code copyable style={{ fontSize: 12 }}>http://localhost:{port}/mcp</Text>
-          </Text>
+          <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
+            外部工具配置 URL:{' '}
+            <code style={{
+              background: 'var(--color-surface)',
+              padding: '2px 6px',
+              borderRadius: 4,
+              fontSize: 'var(--font-size-sm)',
+              fontFamily: 'var(--font-mono)',
+            }}>
+              http://localhost:{port}/mcp
+            </code>
+          </div>
         </>
       )}
 
-      <Button type="primary" block onClick={async () => {
+      <Button variant="primary" block onClick={async () => {
         const config: MCPServerSettings = { enabled, port }
         await window.electronAPI.saveMCPServerConfig(config)
-        message.success('MCP Server 配置已保存，重启应用后生效')
+        toast.success('MCP Server 配置已保存，重启应用后生效')
         const status = await window.electronAPI.getMCPServerStatus()
         setRunning(status.running)
       }}>
         保存 MCP Server 设置
       </Button>
-    </Space>
+    </div>
   )
 }

@@ -1,11 +1,18 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Button, Progress, Space, Tag, Typography, message } from 'antd'
-import { SyncOutlined, CheckCircleOutlined, CloseCircleOutlined, CloudDownloadOutlined, EditOutlined, ApiOutlined } from '@ant-design/icons'
+import { Button, Progress, Tag } from '../../ui'
+import {
+  IconSync,
+  IconLoading,
+  IconCheckCircle,
+  IconCloseCircle,
+  IconCloudDownload,
+  IconEdit,
+  IconApi,
+  IconGitHub,
+} from '../../ui/Icons'
 import type { UpdateStatus } from '@shared/types'
 import PromptTemplateModal from '../PromptTemplateModal'
 import MCPServerModal from '../MCPServerModal'
-
-const { Text } = Typography
 
 export default function GeneralSection() {
   const [appVersion, setAppVersion] = useState('')
@@ -39,67 +46,95 @@ export default function GeneralSection() {
   return (
     <>
       {/* About & Version */}
-      <div style={{ marginBottom: 16 }}>
-        <Text strong style={{ fontSize: 16 }}>Anything Analyzer</Text>
-        <Text type="secondary" style={{ marginLeft: 8 }}>v{appVersion}</Text>
+      <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ fontSize: 'var(--font-size-xl)', fontWeight: 600, color: 'var(--text-primary)' }}>
+          Anything Analyzer
+        </span>
+        <span style={{ color: 'var(--text-secondary)' }}>v{appVersion}</span>
+        <a
+          href="https://github.com/Mouseww/anything-analyzer"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            color: 'var(--text-muted)',
+            transition: 'color 0.15s',
+          }}
+          title="GitHub"
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-primary)')}
+          onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}
+          onClick={e => {
+            e.preventDefault()
+            window.electronAPI.openExternal('https://github.com/Mouseww/anything-analyzer')
+          }}
+        >
+          <IconGitHub size={18} />
+        </a>
       </div>
 
       {/* Update */}
-      <Space style={{ width: '100%', marginBottom: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
         {updateStatus.state === 'idle' && (
-          <Button size="small" icon={<SyncOutlined />} onClick={handleCheckUpdate}>检查更新</Button>
+          <Button size="sm" icon={<IconSync size={14} />} onClick={handleCheckUpdate}>
+            检查更新
+          </Button>
         )}
         {updateStatus.state === 'checking' && (
-          <Button size="small" icon={<SyncOutlined spin />} disabled>正在检查...</Button>
+          <Button size="sm" icon={<IconLoading size={14} />} disabled>
+            正在检查...
+          </Button>
         )}
         {updateStatus.state === 'not-available' && (
           <>
-            <CheckCircleOutlined style={{ color: '#52c41a' }} />
-            <Text>已是最新版本</Text>
-            <Button size="small" onClick={handleCheckUpdate}>重新检查</Button>
+            <IconCheckCircle size={14} style={{ color: 'var(--color-success)' }} />
+            <span style={{ fontSize: 'var(--font-size-base)' }}>已是最新版本</span>
+            <Button size="sm" onClick={handleCheckUpdate}>重新检查</Button>
           </>
         )}
         {updateStatus.state === 'available' && (
           <>
-            <Tag color="blue">v{updateStatus.info?.version} 可用</Tag>
-            <Text type="secondary">正在下载...</Text>
+            <Tag color="info">v{updateStatus.info?.version} 可用</Tag>
+            <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--font-size-base)' }}>正在下载...</span>
           </>
         )}
         {updateStatus.state === 'downloaded' && (
           <>
-            <CloudDownloadOutlined style={{ color: '#1677ff' }} />
-            <Text>v{updateStatus.info?.version} 已就绪</Text>
-            <Button type="primary" size="small" onClick={handleInstallUpdate}>立即重启更新</Button>
+            <IconCloudDownload size={14} style={{ color: 'var(--color-accent)' }} />
+            <span style={{ fontSize: 'var(--font-size-base)' }}>v{updateStatus.info?.version} 已就绪</span>
+            <Button variant="primary" size="sm" onClick={handleInstallUpdate}>
+              立即重启更新
+            </Button>
           </>
         )}
         {updateStatus.state === 'error' && (
           <>
-            <CloseCircleOutlined style={{ color: '#ff4d4f' }} />
-            <Text type="danger" style={{ fontSize: 12 }}>{updateStatus.error}</Text>
-            <Button size="small" onClick={handleCheckUpdate}>重试</Button>
+            <IconCloseCircle size={14} style={{ color: 'var(--color-error)' }} />
+            <span style={{ color: 'var(--color-error)', fontSize: 'var(--font-size-sm)' }}>{updateStatus.error}</span>
+            <Button size="sm" onClick={handleCheckUpdate}>重试</Button>
           </>
         )}
-      </Space>
+      </div>
 
       {updateStatus.state === 'downloading' && (
         <Progress
           percent={Math.round(updateStatus.progress?.percent ?? 0)}
-          size="small"
-          status="active"
-          style={{ marginBottom: 4 }}
+          status="normal"
         />
       )}
 
       <div style={{ marginTop: 24 }}>
-        <Text strong style={{ fontSize: 13, marginBottom: 12, display: 'block' }}>管理工具</Text>
-        <Space direction="vertical" style={{ width: '100%' }}>
-          <Button icon={<EditOutlined />} block onClick={() => setTemplateModalOpen(true)}>
+        <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 600, marginBottom: 12, color: 'var(--text-primary)' }}>
+          管理工具
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
+          <Button icon={<IconEdit size={14} />} block onClick={() => setTemplateModalOpen(true)}>
             管理提示词模板
           </Button>
-          <Button icon={<ApiOutlined />} block onClick={() => setMcpModalOpen(true)}>
+          <Button icon={<IconApi size={14} />} block onClick={() => setMcpModalOpen(true)}>
             管理 MCP 服务器
           </Button>
-        </Space>
+        </div>
       </div>
 
       <PromptTemplateModal open={templateModalOpen} onClose={() => setTemplateModalOpen(false)} />

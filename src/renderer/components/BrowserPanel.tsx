@@ -1,11 +1,7 @@
 import React, { useState, useCallback } from 'react'
-import { Input, Button, Space } from 'antd'
-import {
-  ArrowLeftOutlined,
-  ArrowRightOutlined,
-  ReloadOutlined,
-  SendOutlined
-} from '@ant-design/icons'
+import { Button } from '../ui'
+import { IconArrowLeft, IconArrowRight, IconReload, IconSend } from '../ui/Icons'
+import styles from './BrowserPanel.module.css'
 
 interface BrowserPanelProps {
   currentUrl?: string
@@ -13,6 +9,7 @@ interface BrowserPanelProps {
   onBack: () => void
   onForward: () => void
   onReload: () => void
+  captureSlot?: React.ReactNode
 }
 
 const BrowserPanel: React.FC<BrowserPanelProps> = ({
@@ -20,7 +17,8 @@ const BrowserPanel: React.FC<BrowserPanelProps> = ({
   onNavigate,
   onBack,
   onForward,
-  onReload
+  onReload,
+  captureSlot,
 }) => {
   const [addressValue, setAddressValue] = useState(currentUrl)
 
@@ -33,7 +31,6 @@ const BrowserPanel: React.FC<BrowserPanelProps> = ({
     const url = addressValue.trim()
     if (!url) return
 
-    // Auto-prepend https:// if no protocol is specified
     const finalUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`
     setAddressValue(finalUrl)
     onNavigate(finalUrl)
@@ -41,70 +38,34 @@ const BrowserPanel: React.FC<BrowserPanelProps> = ({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter') {
-        handleNavigate()
-      }
+      if (e.key === 'Enter') handleNavigate()
     },
     [handleNavigate]
   )
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        padding: '8px 12px',
-        background: '#1f1f1f',
-        borderBottom: '1px solid #303030'
-      }}
-    >
+    <div className={styles.panel}>
       {/* Navigation buttons */}
-      <Space size={4}>
-        <Button
-          type="text"
-          size="small"
-          icon={<ArrowLeftOutlined />}
-          onClick={onBack}
-          title="Back"
-        />
-        <Button
-          type="text"
-          size="small"
-          icon={<ArrowRightOutlined />}
-          onClick={onForward}
-          title="Forward"
-        />
-        <Button
-          type="text"
-          size="small"
-          icon={<ReloadOutlined />}
-          onClick={onReload}
-          title="Reload"
-        />
-      </Space>
+      <div className={styles.navBtns}>
+        <Button variant="ghost" size="sm" iconOnly icon={<IconArrowLeft size={14} />} onClick={onBack} title="Back" />
+        <Button variant="ghost" size="sm" iconOnly icon={<IconArrowRight size={14} />} onClick={onForward} title="Forward" />
+        <Button variant="ghost" size="sm" iconOnly icon={<IconReload size={14} />} onClick={onReload} title="Reload" />
+      </div>
 
       {/* Address bar */}
-      <Input
-        value={addressValue}
-        onChange={(e) => setAddressValue(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder="Enter URL..."
-        style={{
-          flex: 1,
-          background: '#141414',
-          borderColor: '#303030'
-        }}
-        suffix={
-          <Button
-            type="text"
-            size="small"
-            icon={<SendOutlined />}
-            onClick={handleNavigate}
-            title="Navigate"
-          />
-        }
-      />
+      <div className={styles.addressBar}>
+        <input
+          className={styles.addressInput}
+          value={addressValue}
+          onChange={(e) => setAddressValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Enter URL..."
+        />
+        <Button variant="ghost" size="sm" iconOnly icon={<IconSend size={14} />} onClick={handleNavigate} title="Navigate" />
+      </div>
+
+      {/* Capture controls slot */}
+      {captureSlot && <div className={styles.captureControls}>{captureSlot}</div>}
     </div>
   )
 }

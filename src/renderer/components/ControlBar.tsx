@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react'
-import { Button, Input, Select, Space, Spin, Tag } from 'antd'
+import { Button, Select, TextArea, Tag } from '../ui'
 import {
-  PlayCircleOutlined,
-  PauseCircleOutlined,
-  StopOutlined,
-  ExperimentOutlined,
-  LoadingOutlined,
-  CheckOutlined,
-  CloseOutlined,
-} from '@ant-design/icons'
+  IconPlay,
+  IconPause,
+  IconStop,
+  IconExperiment,
+  IconCheck,
+  IconClose,
+  IconLoading,
+} from '../ui/Icons'
+import { useLocale } from '../i18n'
 import type { SessionStatus, PromptTemplate } from '../../shared/types'
+import styles from './ControlBar.module.css'
 
 interface ControlBarProps {
   status: SessionStatus | null
@@ -34,12 +36,12 @@ const ControlBar: React.FC<ControlBarProps> = ({
   isAnalyzing = false,
   selectedSeqCount = 0,
 }) => {
+  const { t } = useLocale()
   const [purposeId, setPurposeId] = useState<string>('auto')
   const [customText, setCustomText] = useState('')
   const [customExpanded, setCustomExpanded] = useState(false)
   const [templates, setTemplates] = useState<PromptTemplate[]>([])
 
-  // Load templates from storage
   useEffect(() => {
     window.electronAPI.getPromptTemplates().then(setTemplates).catch(() => {})
   }, [])
@@ -67,9 +69,7 @@ const ControlBar: React.FC<ControlBarProps> = ({
 
   const handleCustomCancel = () => {
     setCustomExpanded(false)
-    if (purposeId !== 'custom') {
-      setCustomText('')
-    }
+    if (purposeId !== 'custom') setCustomText('')
   }
 
   const handleAnalyze = () => {
@@ -82,60 +82,41 @@ const ControlBar: React.FC<ControlBarProps> = ({
     }
   }
 
-  // Build select options from templates + custom
   const selectOptions = [
-    ...templates.map(t => ({ label: t.name, value: t.id })),
-    { label: '自定义...', value: 'custom' },
+    ...templates.map((tpl) => ({ label: tpl.name, value: tpl.id })),
+    { label: t('capture.custom'), value: 'custom' },
   ]
 
   return (
-    <div style={{ flexShrink: 0, background: '#1a1a1a', borderBottom: '1px solid #303030' }}>
+    <div className={styles.controlBar}>
       {/* Main control row */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '8px 12px',
-        }}
-      >
-        <Space size={8}>
+      <div className={styles.mainRow}>
+        <div className={styles.leftGroup}>
           <Button
-            type="primary"
-            icon={<PlayCircleOutlined />}
+            variant="success"
+            icon={<IconPlay size={14} />}
             disabled={!isStopped}
             onClick={onStart}
-            style={
-              isStopped
-                ? { background: '#389e0d', borderColor: '#389e0d' }
-                : undefined
-            }
           >
-            Start Capture
+            {t('capture.start')}
           </Button>
 
           <Button
-            icon={isPaused ? <PlayCircleOutlined /> : <PauseCircleOutlined />}
+            variant="default"
+            icon={isPaused ? <IconPlay size={14} /> : <IconPause size={14} />}
             disabled={!(isRunning || isPaused)}
             onClick={isPaused ? onResume : onPause}
-            style={
-              isRunning
-                ? { color: '#faad14', borderColor: '#faad14' }
-                : isPaused
-                  ? { color: '#389e0d', borderColor: '#389e0d' }
-                  : undefined
-            }
           >
-            {isPaused ? 'Resume' : 'Pause'}
+            {isPaused ? t('capture.resume') : t('capture.pause')}
           </Button>
 
           <Button
-            danger
-            icon={<StopOutlined />}
+            variant="danger"
+            icon={<IconStop size={14} />}
             disabled={!(isRunning || isPaused)}
             onClick={onStop}
           >
-            Stop
+            {t('capture.stop')}
           </Button>
 
           <Select
@@ -147,75 +128,74 @@ const ControlBar: React.FC<ControlBarProps> = ({
           />
 
           <Button
-            type="primary"
-            icon={<ExperimentOutlined />}
+            variant="primary"
+            icon={<IconExperiment size={14} />}
             disabled={!(isStopped && hasRequests) || isAnalyzing}
             loading={isAnalyzing}
             onClick={handleAnalyze}
           >
-            {isAnalyzing ? 'Analyzing...' : selectedSeqCount > 0 ? `分析选中(${selectedSeqCount})` : 'Analyze'}
+            {isAnalyzing
+              ? t('capture.analyze') + '...'
+              : selectedSeqCount > 0
+                ? t('capture.analyzeSelected', { count: selectedSeqCount })
+                : t('capture.analyze')}
           </Button>
-        </Space>
+        </div>
 
-        {/* Right side: status */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {/* Right side: status tags */}
+        <div className={styles.rightGroup}>
           {purposeId === 'custom' && customText.trim() && !customExpanded && (
-            <Tag color="blue" style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <Tag color="info" style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {customText.trim()}
             </Tag>
           )}
           {isRunning && (
-            <Tag
-              color="green"
-              icon={<Spin indicator={<LoadingOutlined style={{ fontSize: 12 }} spin />} size="small" />}
-              style={{ display: 'flex', alignItems: 'center', gap: 4 }}
-            >
-              Capturing...
+            <Tag color="success">
+              <span className={styles.statusTag}>
+                <IconLoading size={12} />
+                {t('capture.running')}
+              </span>
             </Tag>
           )}
-          {isPaused && <Tag color="warning">Paused</Tag>}
-          {isStopped && status !== null && <Tag color="default">Stopped</Tag>}
+          {isPaused && <Tag color="warning">{t('capture.paused')}</Tag>}
+          {isStopped && status !== null && <Tag color="default">{t('capture.stopped')}</Tag>}
         </div>
       </div>
 
       {/* Inline custom purpose input */}
       {customExpanded && (
-        <div
-          style={{
-            padding: '0 12px 8px',
-            display: 'flex',
-            gap: 8,
-            alignItems: 'flex-start',
-          }}
-        >
-          <Input.TextArea
-            value={customText}
-            onChange={(e) => setCustomText(e.target.value)}
-            placeholder="输入你希望 AI 重点分析的内容，例如：分析用户注册流程中的所有加密操作"
-            autoSize={{ minRows: 1, maxRows: 4 }}
-            style={{ flex: 1 }}
-            autoFocus
-            onPressEnter={(e) => {
-              if (!e.shiftKey) {
-                e.preventDefault()
-                handleCustomConfirm()
-              }
-            }}
-          />
-          <Button
-            type="primary"
-            icon={<CheckOutlined />}
-            disabled={!customText.trim()}
-            onClick={handleCustomConfirm}
-            size="small"
-            style={{ marginTop: 2 }}
-          />
-          <Button
-            icon={<CloseOutlined />}
-            onClick={handleCustomCancel}
-            size="small"
-            style={{ marginTop: 2 }}
-          />
+        <div className={styles.customRow}>
+          <div className={styles.customInput}>
+            <TextArea
+              value={customText}
+              onChange={(e) => setCustomText(e.target.value)}
+              placeholder={t('capture.customPurpose')}
+              autoSize={{ minRows: 1, maxRows: 4 }}
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  handleCustomConfirm()
+                }
+              }}
+            />
+          </div>
+          <div className={styles.customBtns}>
+            <Button
+              variant="primary"
+              size="sm"
+              iconOnly
+              icon={<IconCheck size={14} />}
+              disabled={!customText.trim()}
+              onClick={handleCustomConfirm}
+            />
+            <Button
+              size="sm"
+              iconOnly
+              icon={<IconClose size={14} />}
+              onClick={handleCustomCancel}
+            />
+          </div>
         </div>
       )}
     </div>

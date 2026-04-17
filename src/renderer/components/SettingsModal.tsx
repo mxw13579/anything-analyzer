@@ -1,28 +1,20 @@
-import { useState } from 'react'
-import { Modal, Typography } from 'antd'
-import {
-  AppstoreOutlined,
-  RobotOutlined,
-  GlobalOutlined,
-  ThunderboltOutlined,
-  SafetyCertificateOutlined,
-} from '@ant-design/icons'
+import React, { useState } from 'react'
+import { Modal } from '../ui'
+import { IconApp, IconRobot, IconGlobe, IconBolt, IconShield } from '../ui/Icons'
 import GeneralSection from './settings/GeneralSection'
 import LLMSection from './settings/LLMSection'
 import ProxySection from './settings/ProxySection'
 import MCPServerSection from './settings/MCPServerSection'
 import MitmProxySection from './settings/MitmProxySection'
 
-const { Text } = Typography
-
 type SettingsSection = 'general' | 'llm' | 'proxy' | 'mcp-server' | 'mitm-proxy'
 
-const menuItems: { key: SettingsSection; icon: typeof AppstoreOutlined; label: string }[] = [
-  { key: 'general', icon: AppstoreOutlined, label: '通用' },
-  { key: 'llm', icon: RobotOutlined, label: 'LLM' },
-  { key: 'proxy', icon: GlobalOutlined, label: '代理' },
-  { key: 'mcp-server', icon: ThunderboltOutlined, label: 'MCP Server' },
-  { key: 'mitm-proxy', icon: SafetyCertificateOutlined, label: 'MITM 代理' },
+const menuItems: { key: SettingsSection; icon: React.FC<{ size?: number | string }>; label: string }[] = [
+  { key: 'general', icon: IconApp, label: '通用' },
+  { key: 'llm', icon: IconRobot, label: 'LLM' },
+  { key: 'proxy', icon: IconGlobe, label: '代理' },
+  { key: 'mcp-server', icon: IconBolt, label: 'MCP Server' },
+  { key: 'mitm-proxy', icon: IconShield, label: 'MITM 代理' },
 ]
 
 const sectionComponents: Record<SettingsSection, React.ComponentType> = {
@@ -44,17 +36,15 @@ export default function SettingsModal({ open, onClose }: Props) {
     <Modal
       title="Settings"
       open={open}
-      onCancel={onClose}
-      footer={null}
+      onClose={onClose}
       width={900}
-      centered
-      styles={{ body: { padding: 0 } }}
     >
-      <div style={{ display: 'flex', height: 560 }}>
+      {/* Negate modal body padding so sidebar border runs edge-to-edge */}
+      <div style={{ margin: '-16px -24px', display: 'flex', height: 560, overflow: 'hidden' }}>
         {/* Left sidebar navigation */}
         <div style={{
           width: 180,
-          borderRight: '1px solid rgba(255, 255, 255, 0.08)',
+          borderRight: '1px solid var(--color-border)',
           paddingTop: 12,
           paddingBottom: 12,
           flexShrink: 0,
@@ -75,20 +65,20 @@ export default function SettingsModal({ open, onClose }: Props) {
                   gap: 10,
                   borderRadius: 6,
                   margin: '2px 8px',
-                  fontSize: 13,
-                  background: isActive ? 'rgba(22, 119, 255, 0.15)' : 'transparent',
-                  color: isActive ? '#1677ff' : '#d9d9d9',
+                  fontSize: 'var(--font-size-base)',
+                  background: isActive ? 'var(--color-accent-bg)' : 'transparent',
+                  color: isActive ? 'var(--color-accent)' : 'var(--text-secondary)',
                   transition: 'background 0.2s',
                 }}
                 onMouseEnter={e => {
-                  if (!isActive) (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)')
+                  if (!isActive) (e.currentTarget.style.background = 'var(--color-hover)')
                 }}
                 onMouseLeave={e => {
                   if (!isActive) (e.currentTarget.style.background = 'transparent')
                 }}
               >
-                <Icon style={{ fontSize: 16 }} />
-                <Text style={{ color: 'inherit', fontSize: 'inherit' }}>{item.label}</Text>
+                <Icon size={16} />
+                <span style={{ color: 'inherit', fontSize: 'inherit' }}>{item.label}</span>
               </div>
             )
           })}

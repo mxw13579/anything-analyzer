@@ -11,6 +11,12 @@ window.addEventListener("message", (event) => {
 
 // Expose IPC APIs to renderer
 contextBridge.exposeInMainWorld("electronAPI", {
+  // Window control (frameless window)
+  minimizeWindow: () => ipcRenderer.invoke("window:minimize"),
+  maximizeWindow: () => ipcRenderer.invoke("window:maximize"),
+  closeWindow: () => ipcRenderer.invoke("window:close"),
+  isWindowMaximized: () => ipcRenderer.invoke("window:isMaximized"),
+
   // Session management
   createSession: (name: string, targetUrl: string) =>
     ipcRenderer.invoke("session:create", name, targetUrl),
@@ -38,6 +44,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   exportFile: (defaultName: string, content: string) =>
     ipcRenderer.invoke("dialog:exportFile", defaultName, content),
 
+  // Shell
+  openExternal: (url: string) => ipcRenderer.invoke("shell:openExternal", url),
+
   // Tab management
   createTab: (url?: string) => ipcRenderer.invoke("tabs:create", url),
   closeTab: (tabId: string) => ipcRenderer.invoke("tabs:close", tabId),
@@ -58,6 +67,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // AI analysis
   startAnalysis: (sessionId: string, purpose?: string, selectedSeqs?: number[]) =>
     ipcRenderer.invoke("ai:analyze", sessionId, purpose, selectedSeqs),
+  cancelAnalysis: (sessionId: string) =>
+    ipcRenderer.invoke("ai:cancel", sessionId),
   sendFollowUp: (sessionId: string, history: unknown[], userMessage: string) =>
     ipcRenderer.invoke("ai:chat", sessionId, history, userMessage),
 

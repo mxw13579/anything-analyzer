@@ -35,6 +35,10 @@ import { join } from "path";
 /**
  * Register all IPC handlers for communication between renderer and main process.
  */
+
+/** Active analysis abort controllers, keyed by sessionId */
+const analysisControllers = new Map<string, AbortController>();
+
 export function registerIpcHandlers(deps: {
   sessionManager: SessionManager;
   aiAnalyzer: AiAnalyzer;
@@ -102,6 +106,29 @@ export function registerIpcHandlers(deps: {
 
   ipcMain.handle("session:delete", async (_event, sessionId: string) => {
     await sessionManager.deleteSession(sessionId);
+  });
+
+  // ---- Window Control (frameless window) ----
+
+  ipcMain.handle("window:minimize", () => {
+    windowManager.getMainWindow()?.minimize();
+  });
+
+  ipcMain.handle("window:maximize", () => {
+    const win = windowManager.getMainWindow();
+    if (win?.isMaximized()) {
+      win.unmaximize();
+    } else {
+      win?.maximize();
+    }
+  });
+
+  ipcMain.handle("window:close", () => {
+    windowManager.getMainWindow()?.close();
+  });
+
+  ipcMain.handle("window:isMaximized", () => {
+    return windowManager.getMainWindow()?.isMaximized() ?? false;
   });
 
   // ---- Browser Control ----
@@ -250,9 +277,23 @@ export function registerIpcHandlers(deps: {
       await mcpManager.connectAll(mcpServers);
     }
 
-    // Resolve template: if purpose matches a template ID, load it
-    const template = purpose ? findTemplate(purpose) : findTemplate("auto");
-    return aiAnalyzer.analyze(sessionId, config, onProgress, purpose, template ?? undefined, selectedSeqs);
+    // Cancel any existing analysis for this session
+    analysisControllers.get(sessionId)?.abort();
+    const controller = new AbortController();
+    analysisControllers.set(sessionId, controller);
+
+    try {
+      // Resolve template: if purpose matches a template ID, load it
+      const template = purpose ? findTemplate(purpose) : findTemplate("auto");
+      return await aiAnalyzer.analyze(sessionId, config, onProgress, purpose, template ?? undefined, selectedSeqs, controller.signal);
+    } finally {
+      analysisControllers.delete(sessionId);
+    }
+  });
+
+  ipcMain.handle("ai:cancel", async (_event, sessionId: string) => {
+    analysisControllers.get(sessionId)?.abort();
+    analysisControllers.delete(sessionId);
   });
 
   ipcMain.handle(
@@ -309,6 +350,12 @@ export function registerIpcHandlers(deps: {
       return true;
     },
   );
+
+  // ---- Shell ----
+  ipcMain.handle("shell:openExternal", async (_event, url: string) => {
+    const { shell } = await import("electron");
+    await shell.openExternal(url);
+  });
 
   // ---- Auto Update ----
 

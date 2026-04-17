@@ -1,10 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Modal, Button, Input, List, Typography, Space, Switch, message, Popconfirm, Segmented } from 'antd'
-import { PlusOutlined, DeleteOutlined, SaveOutlined, ApiOutlined } from '@ant-design/icons'
+import { Modal, Button, Input, TextArea, Switch, Popconfirm, useToast } from '../ui'
+import { IconPlus, IconDelete, IconSave, IconApi } from '../ui/Icons'
 import { v4 as uuidv4 } from 'uuid'
 import type { MCPServerConfig } from '@shared/types'
-
-const { Text } = Typography
 
 interface Props {
   open: boolean
@@ -45,6 +43,7 @@ function getServerDescription(server: MCPServerConfig): string {
 }
 
 export default function MCPServerModal({ open, onClose }: Props) {
+  const toast = useToast()
   const [servers, setServers] = useState<MCPServerConfig[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<MCPServerConfig | null>(null)
@@ -129,7 +128,7 @@ export default function MCPServerModal({ open, onClose }: Props) {
   const handleSave = async () => {
     if (!editForm) return
     if (!editForm.name.trim()) {
-      message.warning('请输入服务器名称')
+      toast.warning('请输入服务器名称')
       return
     }
 
@@ -137,7 +136,7 @@ export default function MCPServerModal({ open, onClose }: Props) {
     try {
       parsed = JSON.parse(jsonText)
     } catch (e) {
-      message.error(`JSON 格式错误: ${(e as Error).message}`)
+      toast.error(`JSON 格式错误: ${(e as Error).message}`)
       return
     }
 
@@ -147,13 +146,13 @@ export default function MCPServerModal({ open, onClose }: Props) {
     if (transportType === 'streamableHttp') {
       const url = parsed.url
       if (typeof url !== 'string' || !url.trim()) {
-        message.warning('请输入服务器 URL')
+        toast.warning('请输入服务器 URL')
         return
       }
       try {
         new URL(url)
       } catch {
-        message.warning('URL 格式无效')
+        toast.warning('URL 格式无效')
         return
       }
       serverConfig = {
@@ -165,7 +164,7 @@ export default function MCPServerModal({ open, onClose }: Props) {
     } else {
       const command = parsed.command
       if (typeof command !== 'string' || !command.trim()) {
-        message.warning('请输入启动命令')
+        toast.warning('请输入启动命令')
         return
       }
       serverConfig = {
@@ -178,7 +177,7 @@ export default function MCPServerModal({ open, onClose }: Props) {
     }
 
     await window.electronAPI.saveMCPServer(serverConfig)
-    message.success('MCP 服务器已保存')
+    toast.success('MCP 服务器已保存')
     setDirty(false)
     const list = await window.electronAPI.getMCPServers()
     setServers(list)
@@ -187,7 +186,7 @@ export default function MCPServerModal({ open, onClose }: Props) {
   const handleDelete = async () => {
     if (!editForm) return
     await window.electronAPI.deleteMCPServer(editForm.id)
-    message.success('MCP 服务器已删除')
+    toast.success('MCP 服务器已删除')
     setSelectedId(null)
     setEditForm(null)
     setDirty(false)
@@ -219,66 +218,74 @@ export default function MCPServerModal({ open, onClose }: Props) {
     <Modal
       title="MCP 服务器管理"
       open={open}
-      onCancel={onClose}
-      footer={null}
+      onClose={onClose}
       width={800}
-      styles={{ body: { padding: 0 } }}
     >
-      <div style={{ display: 'flex', height: 480 }}>
+      {/* Negate modal body padding so sidebar border runs edge-to-edge */}
+      <div style={{ margin: '-16px -24px', display: 'flex', height: 480, overflow: 'hidden' }}>
         {/* Left: server list */}
         <div
           style={{
             width: 200,
-            borderRight: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRight: '1px solid var(--color-border)',
             overflow: 'auto',
             flexShrink: 0,
           }}
         >
           <div style={{ padding: '8px 12px' }}>
             <Button
-              type="dashed"
-              icon={<PlusOutlined />}
+              variant="dashed"
+              icon={<IconPlus size={13} />}
               block
-              size="small"
+              size="sm"
               onClick={handleCreate}
             >
               添加服务器
             </Button>
           </div>
-          <List
-            size="small"
-            dataSource={servers}
-            renderItem={(item) => (
-              <List.Item
+          <div>
+            {servers.map((item) => (
+              <div
                 key={item.id}
                 onClick={() => handleSelect(item.id)}
                 style={{
                   cursor: 'pointer',
                   padding: '8px 12px',
-                  background:
-                    selectedId === item.id ? 'rgba(22, 119, 255, 0.15)' : 'transparent',
-                  borderLeft:
-                    selectedId === item.id
-                      ? '3px solid #1677ff'
-                      : '3px solid transparent',
+                  background: selectedId === item.id ? 'var(--color-accent-bg)' : 'transparent',
+                  borderLeft: selectedId === item.id ? '3px solid var(--color-accent)' : '3px solid transparent',
                 }}
               >
                 <div style={{ minWidth: 0, width: '100%' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <ApiOutlined
-                      style={{ color: item.enabled ? '#52c41a' : '#8c8c8c', fontSize: 12 }}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+                    <IconApi
+                      size={12}
+                      style={{ color: item.enabled ? 'var(--color-success)' : 'var(--text-muted)', flexShrink: 0 }}
                     />
-                    <Text ellipsis style={{ fontSize: 13, flex: 1 }}>
+                    <span style={{
+                      fontSize: 'var(--font-size-base)',
+                      flex: 1,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      color: 'var(--text-primary)',
+                    }}>
                       {item.name || '未命名'}
-                    </Text>
+                    </span>
                   </div>
-                  <Text type="secondary" ellipsis style={{ fontSize: 11 }}>
+                  <span style={{
+                    fontSize: 'var(--font-size-xs)',
+                    color: 'var(--text-secondary)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    display: 'block',
+                  }}>
                     {getServerDescription(item)}
-                  </Text>
+                  </span>
                 </div>
-              </List.Item>
-            )}
-          />
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Right: edit panel */}
@@ -297,63 +304,78 @@ export default function MCPServerModal({ open, onClose }: Props) {
               {/* 名称 + 启用 */}
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <div style={{ flex: 1 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
+                  <span style={{ display: 'block', fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 4 }}>
                     名称
-                  </Text>
+                  </span>
                   <Input
                     value={editForm.name}
                     onChange={(e) => handleNameChange(e.target.value)}
                     placeholder="如：文件系统 / 远程搜索"
-                    size="small"
+                    inputSize="sm"
                   />
                 </div>
                 <div style={{ paddingTop: 18 }}>
-                  <Space size={4}>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      启用
-                    </Text>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>启用</span>
                     <Switch
                       checked={editForm.enabled}
                       onChange={handleEnabledChange}
-                      size="small"
                     />
-                  </Space>
+                  </div>
                 </div>
               </div>
 
               {/* 传输类型选择 */}
               <div>
-                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+                <span style={{ display: 'block', fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 4 }}>
                   传输类型
-                </Text>
-                <Segmented
-                  size="small"
-                  value={transportType}
-                  onChange={(val) =>
-                    handleTransportTypeChange(val as 'stdio' | 'streamableHttp')
-                  }
-                  options={[
+                </span>
+                <div style={{
+                  display: 'flex',
+                  background: 'var(--color-surface)',
+                  borderRadius: 6,
+                  padding: 2,
+                  width: 'fit-content',
+                }}>
+                  {[
                     { label: '本地命令 (stdio)', value: 'stdio' },
                     { label: '远程服务 (HTTP)', value: 'streamableHttp' },
-                  ]}
-                />
+                  ].map(opt => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => handleTransportTypeChange(opt.value as 'stdio' | 'streamableHttp')}
+                      style={{
+                        padding: '3px 10px',
+                        fontSize: 'var(--font-size-sm)',
+                        border: 'none',
+                        borderRadius: 4,
+                        cursor: 'pointer',
+                        background: transportType === opt.value ? 'var(--color-accent)' : 'transparent',
+                        color: transportType === opt.value ? 'var(--color-base)' : 'var(--text-secondary)',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* JSON 编辑器 */}
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                <Text type="secondary" style={{ fontSize: 12, marginBottom: 4 }}>
+                <span style={{ display: 'block', fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 4 }}>
                   配置 (JSON)
-                </Text>
-                <Input.TextArea
+                </span>
+                <TextArea
                   value={jsonText}
                   onChange={(e) => handleJsonChange(e.target.value)}
-                  status={jsonError ? 'error' : undefined}
                   autoSize={{ minRows: 6, maxRows: 12 }}
                   style={{
-                    fontSize: 12,
-                    fontFamily:
-                      "'Cascadia Code', 'Fira Code', 'JetBrains Mono', Consolas, monospace",
-                    lineHeight: 1.6,
+                    fontSize: 'var(--font-size-sm)',
+                    fontFamily: "'Cascadia Code', 'Fira Code', 'JetBrains Mono', Consolas, monospace",
+                    lineHeight: '1.6',
+                    ...(jsonError ? { borderColor: 'var(--color-error)' } : {}),
                   }}
                   placeholder={
                     transportType === 'stdio'
@@ -362,29 +384,29 @@ export default function MCPServerModal({ open, onClose }: Props) {
                   }
                 />
                 {jsonError && (
-                  <Text type="danger" style={{ fontSize: 11, marginTop: 2 }}>
+                  <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-error)', marginTop: 2 }}>
                     {jsonError}
-                  </Text>
+                  </span>
                 )}
               </div>
 
               {/* 操作按钮 */}
-              <Space style={{ justifyContent: 'flex-end', marginTop: 'auto' }}>
-                <Popconfirm title="确定删除该服务器？" onConfirm={handleDelete}>
-                  <Button size="small" danger icon={<DeleteOutlined />}>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 'auto' }}>
+                <Popconfirm title="确定删除该服务器？" onConfirm={handleDelete} okText="确定" cancelText="取消">
+                  <Button size="sm" variant="danger" icon={<IconDelete size={13} />}>
                     删除
                   </Button>
                 </Popconfirm>
                 <Button
-                  type="primary"
-                  size="small"
-                  icon={<SaveOutlined />}
+                  variant="primary"
+                  size="sm"
+                  icon={<IconSave size={13} />}
                   onClick={handleSave}
                   disabled={!dirty || !!jsonError}
                 >
                   保存
                 </Button>
-              </Space>
+              </div>
             </>
           ) : (
             <div
@@ -395,7 +417,7 @@ export default function MCPServerModal({ open, onClose }: Props) {
                 justifyContent: 'center',
               }}
             >
-              <Text type="secondary">选择或添加 MCP 服务器</Text>
+              <span style={{ color: 'var(--text-secondary)' }}>选择或添加 MCP 服务器</span>
             </div>
           )}
         </div>

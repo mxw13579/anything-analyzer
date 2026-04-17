@@ -20,6 +20,7 @@ export class TabManager extends EventEmitter {
   private activeTabId: string | null = null;
   private mainWindow: BrowserWindow | null = null;
   private boundsCalculator: (() => Electron.Rectangle) | null = null;
+  private visibilityChecker: (() => boolean) | null = null;
   /** Track destroyed tabs to avoid double-close */
   private destroyedTabs = new Set<string>();
 
@@ -29,9 +30,11 @@ export class TabManager extends EventEmitter {
   init(
     mainWindow: BrowserWindow,
     boundsCalculator: () => Electron.Rectangle,
+    visibilityChecker?: () => boolean,
   ): void {
     this.mainWindow = mainWindow;
     this.boundsCalculator = boundsCalculator;
+    this.visibilityChecker = visibilityChecker ?? null;
   }
 
   /**
@@ -66,12 +69,18 @@ export class TabManager extends EventEmitter {
   }
 
   /**
-   * Close a tab. Prevents closing the last remaining tab.
+   * Close a tab. If closing the last tab, create a new blank tab first.
    */
   closeTab(tabId: string): void {
-    if (this.tabs.size <= 1) return; // Keep at least one tab
     const tab = this.tabs.get(tabId);
     if (!tab) return;
+
+    const isLastTab = this.tabs.size <= 1;
+
+    // If this is the last tab, create a replacement before closing
+    if (isLastTab) {
+      this.createTab();
+    }
 
     // Remove from display
     if (this.mainWindow) {
@@ -125,8 +134,11 @@ export class TabManager extends EventEmitter {
       }
     }
 
-    // Add the new tab's view
-    this.mainWindow.contentView.addChildView(tab.view);
+    // Add the new tab's view only if browser is meant to be visible
+    const shouldShow = this.visibilityChecker ? this.visibilityChecker() : true;
+    if (shouldShow) {
+      this.mainWindow.contentView.addChildView(tab.view);
+    }
     this.activeTabId = tabId;
 
     // Apply bounds

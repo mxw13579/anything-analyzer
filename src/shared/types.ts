@@ -338,6 +338,7 @@ export const IPC_CHANNELS = {
   AI_ANALYZE: "ai:analyze",
   AI_PROGRESS: "ai:progress",
   AI_CHAT: "ai:chat",
+  AI_CANCEL: "ai:cancel",
 
   // Settings
   SETTINGS_GET_LLM: "settings:getLLM",
@@ -400,6 +401,12 @@ export const IPC_CHANNELS = {
 // ---- Electron API (exposed via contextBridge) ----
 
 export interface ElectronAPI {
+  // Window control (frameless window)
+  minimizeWindow: () => Promise<void>;
+  maximizeWindow: () => Promise<void>;
+  closeWindow: () => Promise<void>;
+  isWindowMaximized: () => Promise<boolean>;
+
   createSession: (name: string, targetUrl: string) => Promise<Session>;
   listSessions: () => Promise<Session[]>;
   startCapture: (sessionId: string) => Promise<void>;
@@ -415,6 +422,7 @@ export interface ElectronAPI {
   setBrowserRatio: (ratio: number) => Promise<void>;
   setTargetViewVisible: (visible: boolean) => Promise<void>;
   exportFile: (defaultName: string, content: string) => Promise<boolean>;
+  openExternal: (url: string) => Promise<void>;
 
   getRequests: (sessionId: string) => Promise<CapturedRequest[]>;
   getHooks: (sessionId: string) => Promise<JsHookRecord[]>;
@@ -423,6 +431,7 @@ export interface ElectronAPI {
   clearCaptureData: (sessionId: string) => Promise<void>;
 
   startAnalysis: (sessionId: string, purpose?: string, selectedSeqs?: number[]) => Promise<AnalysisReport>;
+  cancelAnalysis: (sessionId: string) => Promise<void>;
   sendFollowUp: (sessionId: string, history: ChatMessage[], userMessage: string) => Promise<string>;
   syncBrowserBounds: (bounds: {
     x: number;

@@ -1,11 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Modal, Button, Input, List, Typography, Space, Tag, message, Popconfirm } from 'antd'
-import { PlusOutlined, UndoOutlined, DeleteOutlined, SaveOutlined } from '@ant-design/icons'
+import { Modal, Button, Input, TextArea, Tag, Popconfirm, useToast } from '../ui'
+import { IconPlus, IconUndo, IconDelete, IconSave } from '../ui/Icons'
 import { v4 as uuidv4 } from 'uuid'
 import type { PromptTemplate } from '@shared/types'
-
-const { Text } = Typography
-const { TextArea } = Input
 
 interface Props {
   open: boolean
@@ -13,6 +10,7 @@ interface Props {
 }
 
 export default function PromptTemplateModal({ open, onClose }: Props) {
+  const toast = useToast()
   const [templates, setTemplates] = useState<PromptTemplate[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<PromptTemplate | null>(null)
@@ -49,7 +47,7 @@ export default function PromptTemplateModal({ open, onClose }: Props) {
   const handleSave = async () => {
     if (!editForm) return
     await window.electronAPI.savePromptTemplate(editForm)
-    message.success('模板已保存')
+    toast.success('模板已保存')
     setDirty(false)
     await loadAll()
   }
@@ -57,7 +55,7 @@ export default function PromptTemplateModal({ open, onClose }: Props) {
   const handleReset = async () => {
     if (!editForm || !editForm.isBuiltin) return
     await window.electronAPI.resetPromptTemplate(editForm.id)
-    message.success('已恢复默认')
+    toast.success('已恢复默认')
     const list = await window.electronAPI.getPromptTemplates()
     setTemplates(list)
     const restored = list.find((t) => t.id === editForm.id)
@@ -70,7 +68,7 @@ export default function PromptTemplateModal({ open, onClose }: Props) {
   const handleDelete = async () => {
     if (!editForm || editForm.isBuiltin) return
     await window.electronAPI.deletePromptTemplate(editForm.id)
-    message.success('模板已删除')
+    toast.success('模板已删除')
     setSelectedId(null)
     setEditForm(null)
     setDirty(false)
@@ -101,55 +99,74 @@ export default function PromptTemplateModal({ open, onClose }: Props) {
     <Modal
       title="提示词模板管理"
       open={open}
-      onCancel={onClose}
-      footer={null}
+      onClose={onClose}
       width={800}
-      styles={{ body: { padding: 0 } }}
     >
-      <div style={{ display: 'flex', height: 520 }}>
+      {/* Negate modal body padding so sidebar border runs edge-to-edge */}
+      <div style={{ margin: '-16px -24px', display: 'flex', height: 520, overflow: 'hidden' }}>
         {/* Left: template list */}
         <div style={{
           width: 200,
-          borderRight: '1px solid rgba(255, 255, 255, 0.08)',
+          borderRight: '1px solid var(--color-border)',
           overflow: 'auto',
           flexShrink: 0,
         }}>
           <div style={{ padding: '8px 12px' }}>
             <Button
-              type="dashed"
-              icon={<PlusOutlined />}
+              variant="dashed"
+              icon={<IconPlus size={13} />}
               block
-              size="small"
+              size="sm"
               onClick={handleCreate}
             >
               新建模板
             </Button>
           </div>
-          <List
-            size="small"
-            dataSource={templates}
-            renderItem={(item) => (
-              <List.Item
+          <div>
+            {templates.map((item) => (
+              <div
                 key={item.id}
                 onClick={() => handleSelect(item.id)}
                 style={{
                   cursor: 'pointer',
                   padding: '8px 12px',
-                  background: selectedId === item.id ? 'rgba(22, 119, 255, 0.15)' : 'transparent',
-                  borderLeft: selectedId === item.id ? '3px solid #1677ff' : '3px solid transparent',
+                  background: selectedId === item.id ? 'var(--color-accent-bg)' : 'transparent',
+                  borderLeft: selectedId === item.id ? '3px solid var(--color-accent)' : '3px solid transparent',
                 }}
               >
                 <div style={{ minWidth: 0, width: '100%' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <Text ellipsis style={{ fontSize: 13, flex: 1 }}>{item.name}</Text>
-                    {item.isBuiltin && <Tag style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>内置</Tag>}
-                    {item.isModified && <Tag color="orange" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>已改</Tag>}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+                    <span style={{
+                      fontSize: 'var(--font-size-base)',
+                      flex: 1,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      color: 'var(--text-primary)',
+                    }}>
+                      {item.name}
+                    </span>
+                    {item.isBuiltin && (
+                      <Tag style={{ fontSize: 'var(--font-size-2xs)', lineHeight: '16px', padding: '0 4px' }}>内置</Tag>
+                    )}
+                    {item.isModified && (
+                      <Tag color="orange" style={{ fontSize: 'var(--font-size-2xs)', lineHeight: '16px', padding: '0 4px' }}>已改</Tag>
+                    )}
                   </div>
-                  <Text type="secondary" ellipsis style={{ fontSize: 11 }}>{item.description}</Text>
+                  <span style={{
+                    fontSize: 'var(--font-size-xs)',
+                    color: 'var(--text-secondary)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    display: 'block',
+                  }}>
+                    {item.description}
+                  </span>
                 </div>
-              </List.Item>
-            )}
-          />
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Right: edit form */}
@@ -158,68 +175,76 @@ export default function PromptTemplateModal({ open, onClose }: Props) {
             <>
               <div style={{ display: 'flex', gap: 8 }}>
                 <div style={{ flex: 1 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>名称</Text>
+                  <span style={{ display: 'block', fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 4 }}>
+                    名称
+                  </span>
                   <Input
                     value={editForm.name}
                     onChange={(e) => handleFieldChange('name', e.target.value)}
-                    size="small"
+                    inputSize="sm"
                     disabled={editForm.isBuiltin}
                   />
                 </div>
                 <div style={{ flex: 2 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>描述</Text>
+                  <span style={{ display: 'block', fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 4 }}>
+                    描述
+                  </span>
                   <Input
                     value={editForm.description}
                     onChange={(e) => handleFieldChange('description', e.target.value)}
-                    size="small"
+                    inputSize="sm"
                   />
                 </div>
               </div>
 
               <div>
-                <Text type="secondary" style={{ fontSize: 12 }}>System Prompt</Text>
+                <span style={{ display: 'block', fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 4 }}>
+                  System Prompt
+                </span>
                 <TextArea
                   value={editForm.systemPrompt}
                   onChange={(e) => handleFieldChange('systemPrompt', e.target.value)}
                   autoSize={{ minRows: 3, maxRows: 6 }}
-                  style={{ fontSize: 12 }}
+                  style={{ fontSize: 'var(--font-size-sm)' }}
                 />
               </div>
 
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                <Text type="secondary" style={{ fontSize: 12 }}>分析要求</Text>
+                <span style={{ display: 'block', fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 4 }}>
+                  分析要求
+                </span>
                 <TextArea
                   value={editForm.requirements}
                   onChange={(e) => handleFieldChange('requirements', e.target.value)}
-                  style={{ flex: 1, fontSize: 12, resize: 'none' }}
+                  style={{ flex: 1, fontSize: 'var(--font-size-sm)', resize: 'none' }}
                 />
               </div>
 
-              <Space style={{ justifyContent: 'flex-end' }}>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                 {editForm.isBuiltin && editForm.isModified && (
-                  <Popconfirm title="确定恢复默认？" onConfirm={handleReset}>
-                    <Button size="small" icon={<UndoOutlined />}>恢复默认</Button>
+                  <Popconfirm title="确定恢复默认？" onConfirm={handleReset} okText="确定" cancelText="取消">
+                    <Button size="sm" icon={<IconUndo size={13} />}>恢复默认</Button>
                   </Popconfirm>
                 )}
                 {!editForm.isBuiltin && (
-                  <Popconfirm title="确定删除该模板？" onConfirm={handleDelete}>
-                    <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+                  <Popconfirm title="确定删除该模板？" onConfirm={handleDelete} okText="确定" cancelText="取消">
+                    <Button size="sm" variant="danger" icon={<IconDelete size={13} />}>删除</Button>
                   </Popconfirm>
                 )}
                 <Button
-                  type="primary"
-                  size="small"
-                  icon={<SaveOutlined />}
+                  variant="primary"
+                  size="sm"
+                  icon={<IconSave size={13} />}
                   onClick={handleSave}
                   disabled={!dirty}
                 >
                   保存
                 </Button>
-              </Space>
+              </div>
             </>
           ) : (
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Text type="secondary">选择或新建模板</Text>
+              <span style={{ color: 'var(--text-secondary)' }}>选择或新建模板</span>
             </div>
           )}
         </div>
